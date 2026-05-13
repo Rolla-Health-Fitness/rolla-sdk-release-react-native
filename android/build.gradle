@@ -9,6 +9,16 @@
 
 apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
+// React Gradle Plugin — required for TurboModule codegen on the library.
+// Generates `NativeRollaWrapperSpec.java` under build/generated/source/codegen
+// from the TS spec in `src/`, driven by `codegenConfig` in package.json.
+apply plugin: "com.facebook.react"
+
+react {
+  jsRootDir = file("../src/")
+  libraryName = "RollaWrapper"
+  codegenJavaPackageName = "app.rolla.reactnative"
+}
 
 
 def getExtOrIntegerDefault(name) {

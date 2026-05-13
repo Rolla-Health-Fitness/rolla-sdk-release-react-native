@@ -1,6 +1,6 @@
-import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
+import { NativeEventEmitter, Platform } from 'react-native';
 
-import { NativeRollaWrapper } from './NativeRollaWrapper';
+import NativeRollaWrapper from './NativeRollaWrapper';
 import type {
   RollaCloseEvent,
   RollaConfiguration,
@@ -162,12 +162,14 @@ export class Rolla {
 
   private static getEmitter(): NativeEventEmitter {
     if (!Rolla._emitter) {
-      // On iOS we hand the native module (it's an RCTEventEmitter subclass) so
-      // RN does not log "Sending event with no listeners". On Android we pass
-      // nothing because emission goes via DeviceEventManagerModule.
+      // On iOS we hand the native module (an RCTEventEmitter subclass) so RN
+      // does not log "Sending event with no listeners". Under Bridgeless the
+      // legacy `NativeModules.RollaWrapper` lookup can be undefined, so we pass
+      // the TurboModule instance directly. On Android, emission goes through
+      // DeviceEventManagerModule, so no module reference is needed.
       Rolla._emitter =
         Platform.OS === 'ios'
-          ? new NativeEventEmitter(NativeModules.RollaWrapper)
+          ? new NativeEventEmitter(NativeRollaWrapper as never)
           : new NativeEventEmitter();
     }
     return Rolla._emitter;

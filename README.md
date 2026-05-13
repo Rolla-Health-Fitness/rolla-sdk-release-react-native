@@ -13,7 +13,7 @@ This package wraps the **same** native iOS pod (`RollaSDK`) and Android Maven ar
 
 | `@rolla-health/react-native-sdk` | iOS pod `RollaSDK` | Android `com.rolla.sdk:android_release` | React Native | iOS min | Android min |
 | -------------------------------- | ------------------ | --------------------------------------- | ------------ | ------- | ----------- |
-| `0.1.0` – `0.1.x`                | `0.1.10`           | `0.1.10`                                | `>= 0.80.3`  | 14.0    | 26          |
+| `0.1.0` – `0.1.x`                | `0.1.10`           | `0.1.10`                                | `>= 0.80.3`  | 15.1    | 26          |
 
 The RN floor is `0.80.3` because: (1) the native Android SDK ships with Kotlin 2.2 metadata, and (2) RN's bundled `react-native-gradle-plugin` must itself be compiled against Kotlin ≥ 2.1 — where `org.jetbrains.kotlin.gradle.dsl.KotlinTopLevelExtension` became an interface (was a class in Kotlin ≤ 2.0). RN 0.80 was the first release whose gradle-plugin bumped to Kotlin 2.1.20; older RN versions fail with `Found interface KotlinTopLevelExtension, but class was expected` under any Kotlin 2.1+ pin.
 
@@ -40,7 +40,7 @@ No authentication required — the package is published to the public npm regist
 Edit `ios/Podfile`:
 
 ```ruby
-platform :ios, '14.0'
+platform :ios, '15.1'
 
 # IMPORTANT: order matters — Rolla source must come BEFORE the CocoaPods CDN.
 source 'https://github.com/Rolla-Health-Fitness/rolla-sdk-release-ios.git'

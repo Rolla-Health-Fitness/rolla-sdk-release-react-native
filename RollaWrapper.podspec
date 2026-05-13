@@ -17,7 +17,7 @@ Pod::Spec.new do |s|
   s.license      = package["license"]
   s.authors      = package["author"]
 
-  s.platforms    = { :ios => "14.0" }
+  s.platforms    = { :ios => "15.1" }
   s.swift_version = "5.0"
   s.source       = { :git => "https://github.com/Rolla-Health-Fitness/rolla-sdk-release-react-native.git", :tag => "v#{s.version}" }
 

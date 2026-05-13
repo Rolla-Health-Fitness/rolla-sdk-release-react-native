@@ -3,7 +3,14 @@ require "json"
 package = JSON.parse(File.read(File.join(__dir__, "package.json")))
 
 Pod::Spec.new do |s|
-  s.name         = "RollaSdk"
+  # `RollaWrapper` — the pod / iOS framework / Android module name. This is
+  # the wrapper layer that adapts the native Rolla SDK to React Native.
+  #
+  # We cannot use the bare name "Rolla" or "RollaSdk" because either would
+  # collide with the native iOS framework `RollaSDK.framework` (macOS is
+  # case-insensitive) or with the native Android `com.rolla.sdk.wrapper.Rolla`
+  # class we import. "RollaWrapper" stays distinct everywhere.
+  s.name         = "RollaWrapper"
   s.version      = package["version"]
   s.summary      = package["description"]
   s.homepage     = package["homepage"]
@@ -17,8 +24,7 @@ Pod::Spec.new do |s|
   s.source_files = "ios/**/*.{h,m,mm,swift}"
 
   s.pod_target_xcconfig = {
-    "DEFINES_MODULE" => "YES",
-    "SWIFT_OBJC_BRIDGING_HEADER" => "$(PODS_TARGET_SRCROOT)/ios/RollaSdk-Bridging-Header.h"
+    "DEFINES_MODULE" => "YES"
   }
 
   # Exact pin to the native iOS SDK. Bump in lockstep with the compatibility

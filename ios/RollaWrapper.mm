@@ -1,7 +1,7 @@
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
 
-@interface RCT_EXTERN_REMAP_MODULE(RollaSdk, RollaSdk, RCTEventEmitter)
+@interface RCT_EXTERN_REMAP_MODULE(RollaWrapper, RollaWrapper, RCTEventEmitter)
 
 RCT_EXTERN_METHOD(show:(NSDictionary *)config
                   resolver:(RCTPromiseResolveBlock)resolve

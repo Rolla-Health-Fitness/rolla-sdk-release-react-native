@@ -1,9 +1,10 @@
 import Foundation
 import UIKit
+import React
 import RollaSDK
 
-@objc(RollaSdk)
-final class RollaSdk: RCTEventEmitter {
+@objc(RollaWrapper)
+final class RollaWrapper: RCTEventEmitter {
 
   private static let kEventClose            = "onClose"
   private static let kEventError            = "onError"
@@ -177,10 +178,10 @@ final class RollaSdk: RCTEventEmitter {
 
   private static func buildConfiguration(from dict: NSDictionary) throws -> RollaConfiguration {
     guard let token = dict["token"] as? String, !token.isEmpty else {
-      throw RollaSdkBridgeError.missingField("token")
+      throw RollaWrapperBridgeError.missingField("token")
     }
     guard let partnerId = dict["partnerId"] as? String, !partnerId.isEmpty else {
-      throw RollaSdkBridgeError.missingField("partnerId")
+      throw RollaWrapperBridgeError.missingField("partnerId")
     }
     let environment = (dict["environment"] as? String) ?? "rnd"
 
@@ -225,7 +226,7 @@ final class RollaSdk: RCTEventEmitter {
 
 // MARK: - RollaDelegate
 
-extension RollaSdk: RollaDelegate {
+extension RollaWrapper: RollaDelegate {
 
   func rollaDidClose(_ rolla: Rolla, reason: RollaCloseReason) {
     self.rolla = nil
@@ -271,7 +272,7 @@ extension RollaSdk: RollaDelegate {
 
 // MARK: - Bridge error
 
-private enum RollaSdkBridgeError: LocalizedError {
+private enum RollaWrapperBridgeError: LocalizedError {
   case missingField(String)
   var errorDescription: String? {
     switch self {

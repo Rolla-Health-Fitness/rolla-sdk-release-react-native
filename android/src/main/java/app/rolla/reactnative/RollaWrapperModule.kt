@@ -19,7 +19,7 @@ import com.rolla.sdk.wrapper.RollaConfiguration
 import com.rolla.sdk.wrapper.RollaError
 import com.rolla.sdk.wrapper.RollaListener
 
-class RollaSdkModule(reactContext: ReactApplicationContext) :
+class RollaWrapperModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext), LifecycleEventListener {
 
     private var rolla: Rolla? = null
@@ -51,7 +51,7 @@ class RollaSdkModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun show(config: ReadableMap, promise: Promise) {
         val activity = currentActivity
-            ?: return promise.reject("NO_ACTIVITY", "RollaSdk.show requires a foreground activity.")
+            ?: return promise.reject("NO_ACTIVITY", "RollaWrapper.show requires a foreground activity.")
 
         UiThreadUtil.runOnUiThread {
             try {
@@ -210,7 +210,7 @@ class RollaSdkModule(reactContext: ReactApplicationContext) :
     private inner class RollaListenerAdapter : RollaListener {
 
         override fun onRollaClosed(rolla: Rolla, reason: RollaCloseReason) {
-            this@RollaSdkModule.rolla = null
+            this@RollaWrapperModule.rolla = null
             emit("onClose", encodeReason(reason))
         }
 
@@ -259,7 +259,7 @@ class RollaSdkModule(reactContext: ReactApplicationContext) :
     }
 
     companion object {
-        const val NAME = "RollaSdk"
+        const val NAME = "RollaWrapper"
         private const val NATIVE_SDK_VERSION = "0.1.10"
     }
 }

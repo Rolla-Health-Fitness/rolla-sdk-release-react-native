@@ -53,7 +53,7 @@ jobs:
 
       - name: CocoaPods lint
         run: |
-          pod lib lint RollaSdk.podspec \
+          pod lib lint RollaWrapper.podspec \
             --sources='https://github.com/Rolla-Health-Fitness/rolla-sdk-release-ios.git,https://cdn.cocoapods.org/' \
             --use-libraries \
             --allow-warnings \

@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)" >&2
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: yarn typecheck
+
+      - name: Build package (bob)
+        run: yarn prepare
+
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Finalize Android SDK
+        run: |
+          /bin/bash -c "yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null"
+
+      - name: Android Gradle smoke build (--refresh-dependencies)
+        env:
+          JAVA_OPTS: '-XX:MaxHeapSize=6g'
+        run: |
+          cd example/android
+          ./gradlew assembleDebug --refresh-dependencies --no-daemon
+
+      - name: CocoaPods lint
+        run: |
+          pod lib lint RollaSdk.podspec \
+            --sources='https://github.com/Rolla-Health-Fitness/rolla-sdk-release-ios.git,https://cdn.cocoapods.org/' \
+            --use-libraries \
+            --allow-warnings \
+            --skip-tests
+
+      - name: Configure npm auth
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}

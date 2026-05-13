@@ -1,20 +1,11 @@
-buildscript {
-  ext.getExtOrDefault = { name ->
-    return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties['RollaWrapper_' + name]
-  }
-
-  repositories {
-    google()
-    mavenCentral()
-  }
-
-  dependencies {
-    classpath "com.android.tools.build:gradle:8.7.2"
-    // noinspection DifferentKotlinGradleVersion
-    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${getExtOrDefault('kotlinVersion')}"
-  }
-}
-
+// NOTE: this build.gradle is applied as an autolinked subproject of the
+// consumer app. The consumer's root build.gradle is responsible for the
+// `classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:..."` dependency
+// and for declaring repositories. Declaring our own `buildscript { ... }`
+// block here causes AGP 8.x to load the kotlin-gradle-plugin in an isolated
+// classloader; the `kotlin-android` plugin then silently fails to apply,
+// leaving every Kotlin stdlib reference (`emptyList`, `let`, `it`, ...)
+// unresolved at compileDebugKotlin time.
 
 apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
@@ -74,16 +65,17 @@ android {
   }
 }
 
-repositories {
-  mavenCentral()
-  google()
-}
-
-def kotlin_version = getExtOrDefault("kotlinVersion")
+// Repositories come from the consumer's settings.gradle under
+// `dependencyResolutionManagement`; declaring them here trips PREFER_SETTINGS.
 
 dependencies {
   implementation "com.facebook.react:react-android"
-  implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+  // kotlin-stdlib is auto-applied by the kotlin-android plugin in Kotlin 1.8+
+  // / AGP 8+. Declaring it explicitly with an interpolated $kotlin_version
+  // breaks under some Gradle configurations (the property lookup returns empty,
+  // producing a malformed dep coordinate that silently resolves to nothing
+  // and leaves Kotlin's stdlib off the compile classpath — every stdlib
+  // reference like `it`, `apply`, `emptyList` then fails to resolve).
 
   // Native Android distribution of the Rolla SDK. Exact pin — bump in lockstep
   // with the compatibility matrix in README.md. Gradle resolves this from the

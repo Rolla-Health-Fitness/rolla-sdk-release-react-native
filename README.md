@@ -11,9 +11,11 @@ This package wraps the **same** native iOS pod (`RollaSDK`) and Android Maven ar
 
 ## Compatibility matrix
 
-| `@rolla-health/react-native-sdk` | iOS pod `RollaSDK` | Android `com.rolla.sdk:android_release` | React Native               | iOS min | Android min |
-| -------------------------------- | ------------------ | --------------------------------------- | -------------------------- | ------- | ----------- |
-| `0.1.0` – `0.1.x`                | `0.1.10`           | `0.1.10`                                | `>= 0.74.0` (0.76.2+ rec.) | 14.0    | 26          |
+| `@rolla-health/react-native-sdk` | iOS pod `RollaSDK` | Android `com.rolla.sdk:android_release` | React Native | iOS min | Android min |
+| -------------------------------- | ------------------ | --------------------------------------- | ------------ | ------- | ----------- |
+| `0.1.0` – `0.1.x`                | `0.1.10`           | `0.1.10`                                | `>= 0.80.3`  | 14.0    | 26          |
+
+The RN floor is `0.80.3` because: (1) the native Android SDK ships with Kotlin 2.2 metadata, and (2) RN's bundled `react-native-gradle-plugin` must itself be compiled against Kotlin ≥ 2.1 — where `org.jetbrains.kotlin.gradle.dsl.KotlinTopLevelExtension` became an interface (was a class in Kotlin ≤ 2.0). RN 0.80 was the first release whose gradle-plugin bumped to Kotlin 2.1.20; older RN versions fail with `Found interface KotlinTopLevelExtension, but class was expected` under any Kotlin 2.1+ pin.
 
 The JS package version is decoupled from the native artifact versions. **Both** native sides are exact-pinned in the podspec / Gradle file — if your app pins a conflicting native version, the build will fail fast. That is intentional.
 
@@ -80,13 +82,17 @@ Open the `.xcworkspace`, not the `.xcodeproj`.
 
 ### 3. Android — register the three Maven repositories
 
-The native `com.rolla.sdk:android_release` artifact and its Flutter/Mapbox transitive dependencies live in three separate public Maven repositories. React Native 0.74+ apps ship with `RepositoriesMode.FAIL_ON_PROJECT_REPOS` set in `android/settings.gradle`, which means **library `build.gradle` files cannot declare these repositories on your behalf** — you must add them to your app's `settings.gradle`.
+The native `com.rolla.sdk:android_release` artifact and its Flutter/Mapbox transitive dependencies live in three separate public Maven repositories. You must register them in your app's `android/settings.gradle` (libraries cannot declare these repositories on your behalf under the strict resolution mode RN templates use).
 
 Edit `android/settings.gradle`:
 
 ```groovy
 dependencyResolutionManagement {
-  repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+  // PREFER_SETTINGS — not FAIL_ON_PROJECT_REPOS. The React Native root
+  // plugin (`com.facebook.react.rootproject`) registers its own repo at
+  // the project level; FAIL_ON_PROJECT_REPOS rejects that and breaks the
+  // build with "repository 'maven' was added by plugin 'com.facebook.react'".
+  repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
   repositories {
     google()
     mavenCentral()
@@ -196,12 +202,26 @@ useEffect(() => {
 
 ## Known issues & gotchas
 
-- **iOS `use_frameworks!` is mandatory.** The underlying `RollaSDK` pod vendors 27 pre-built `.xcframework` bundles (Flutter engine, Mapbox SDK, plugins). You must use `:linkage => :static` to keep static-linked RN pods working. Flipper does not support framework linkage and must be disabled.
-- **iOS `ENABLE_USER_SCRIPT_SANDBOXING` must be `NO`.** Xcode 15+ defaults this on, and it breaks CocoaPods' resource-copy scripts for vendored xcframeworks.
-- **iOS: force `ZIPFoundation` to a dynamic framework.** `NordicDFU.xcframework` (vendored by `RollaSDK`) was pre-built linking `ZIPFoundation` as a dynamic dependency. Under `:linkage => :static`, `ZIPFoundation` is otherwise statically linked into the app binary and not embedded in `Frameworks/`, causing `dyld: Library not loaded: @rpath/ZIPFoundation.framework/ZIPFoundation` at launch. Add a `pre_install` hook to your Podfile that flips `ZIPFoundation` to a dynamic framework — see the demo Podfile for the exact snippet.
-- **iOS: `.xcode.env` must point at an absolute `node` path.** Xcode's script-phase shell does not source your interactive PATH, so `command -v node` returns empty and Hermes' replace-config script fails with `: command not found`. Hard-code `export NODE_BINARY=/opt/homebrew/bin/node` (or your equivalent) in `ios/.xcode.env`.
-- **Bumping the native version requires `./gradlew --refresh-dependencies`.** Gradle caches stale Mapbox metadata; this cannot be fixed CI-side.
-- **React Native New Architecture (Bridgeless) is not supported in v1.** Old-architecture and New Arch (Fabric/TurboModules) interop on `>= 0.74.0` both work; bridgeless mode does not.
+### iOS
+
+- **`use_frameworks!` is mandatory.** The underlying `RollaSDK` pod vendors 27 pre-built `.xcframework` bundles (Flutter engine, Mapbox SDK, plugins). You must use `:linkage => :static` to keep static-linked RN pods working. Flipper does not support framework linkage and must be disabled.
+- **`ENABLE_USER_SCRIPT_SANDBOXING` must be `NO`.** Xcode 15+ defaults this on, and it breaks CocoaPods' resource-copy scripts for vendored xcframeworks.
+- **Force `ZIPFoundation` to a dynamic framework.** `NordicDFU.xcframework` (vendored by `RollaSDK`) was pre-built linking `ZIPFoundation` as a dynamic dependency. Under `:linkage => :static`, `ZIPFoundation` is otherwise statically linked into the app binary and not embedded in `Frameworks/`, causing `dyld: Library not loaded: @rpath/ZIPFoundation.framework/ZIPFoundation` at launch. Add a `pre_install` hook to your Podfile that flips `ZIPFoundation` to a dynamic framework — see the demo Podfile for the exact snippet.
+- **`.xcode.env` must point at an absolute `node` path.** Xcode's script-phase shell does not source your interactive PATH, so `command -v node` returns empty and Hermes' replace-config script fails with `: command not found`. Hard-code `export NODE_BINARY=/opt/homebrew/bin/node` (or your equivalent) in `ios/.xcode.env`.
+
+### Android
+
+- **`compileSdk` and `targetSdk` must be `36` or higher.** The native SDK pulls `androidx.health-connect`, `androidx.activity`, `androidx.browser`, and `androidx.core` versions that require `compileSdk >= 36`. Lower values fail with `Dependency '…' requires libraries and applications that depend on it to compile against version 36 or later of the Android APIs`.
+- **Pin AGP and Kotlin explicitly.** RN's default scaffold leaves `classpath("com.android.tools.build:gradle")` unversioned, which falls back to an AGP too old for the SDK. Pin to AGP `>= 8.9.1` and Kotlin `>= 2.2.0` (the SDK is compiled with Kotlin 2.2; older toolchains fail with "Class was compiled with an incompatible version of Kotlin"). Use Gradle `>= 8.13` to satisfy AGP 8.9.
+- **Use `RepositoriesMode.PREFER_SETTINGS`, not `FAIL_ON_PROJECT_REPOS`.** The React Native root plugin (`com.facebook.react.rootproject`) registers its own Maven repo at the project level. `FAIL_ON_PROJECT_REPOS` rejects that and the build fails with `repository 'maven' was added by plugin 'com.facebook.react'`. `PREFER_SETTINGS` lets the repos in your `settings.gradle` win while permitting plugins to contribute their own.
+- **`ANDROID_HOME` must be set** (or `android/local.properties` must define `sdk.dir`). Standard Android development requirement — the demo's `local.properties` is gitignored, so first-time contributors must export `ANDROID_HOME=$HOME/Library/Android/sdk` (macOS default) or create the file by hand.
+- **Bumping the native version requires `./gradlew --refresh-dependencies`.** Gradle caches stale Mapbox metadata across SDK bumps; this cannot be fixed CI-side.
+- **`minSdk` must be `26` or higher.** RollaSDK uses Bluetooth Low Energy + foreground services that require API 26+.
+- **Core library desugaring is mandatory.** The native SDK uses `java.time` APIs that aren't in API 26 by default. See the Installation section above for the exact `build.gradle` block.
+
+### Cross-platform
+
+- **React Native New Architecture (Bridgeless) is not supported in v1.** Old-architecture and New Arch (Fabric/TurboModules) interop on `>= 0.80.3` both work; bridgeless mode does not.
 - **Run on real devices.** BLE and GPS features require physical handsets — emulators will not validate the full integration.
 
 ### Transitive iOS pod dependencies

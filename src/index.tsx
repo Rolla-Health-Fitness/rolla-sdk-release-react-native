@@ -1,6 +1,6 @@
 import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
 
-import { NativeRollaSdk } from './NativeRollaSdk';
+import { NativeRollaWrapper } from './NativeRollaWrapper';
 import type {
   RollaCloseEvent,
   RollaConfiguration,
@@ -80,14 +80,14 @@ export class Rolla {
       // promise pending until `onClose` fires.
       if (__DEV__ && Rolla._userSubs.size === 0) {
         console.warn(
-          '[RollaSdk] Native error received but no JS listener attached:',
+          '[RollaWrapper] Native error received but no JS listener attached:',
           event
         );
       }
     });
 
     try {
-      await NativeRollaSdk.show(config);
+      await NativeRollaWrapper.show(config);
     } catch (err) {
       Rolla.cleanupShowSubs();
       Rolla._showResolver = null;
@@ -98,7 +98,7 @@ export class Rolla {
   }
 
   static dismiss(): Promise<void> {
-    return NativeRollaSdk.dismiss();
+    return NativeRollaWrapper.dismiss();
   }
 
   static updateToken(
@@ -106,7 +106,7 @@ export class Rolla {
     refreshToken?: string,
     expiresIn?: number
   ): Promise<void> {
-    return NativeRollaSdk.updateToken(
+    return NativeRollaWrapper.updateToken(
       token,
       refreshToken ?? null,
       expiresIn ?? null
@@ -114,19 +114,19 @@ export class Rolla {
   }
 
   static clearSession(): Promise<void> {
-    return NativeRollaSdk.clearSession();
+    return NativeRollaWrapper.clearSession();
   }
 
   static destroyEngine(): Promise<void> {
-    return NativeRollaSdk.destroyEngine();
+    return NativeRollaWrapper.destroyEngine();
   }
 
   static isPresenting(): Promise<boolean> {
-    return NativeRollaSdk.isPresenting();
+    return NativeRollaWrapper.isPresenting();
   }
 
   static getNativeSdkVersion(): Promise<string> {
-    return NativeRollaSdk.getNativeSdkVersion();
+    return NativeRollaWrapper.getNativeSdkVersion();
   }
 
   static addListener<K extends RollaEventName>(
@@ -134,7 +134,7 @@ export class Rolla {
     listener: (payload: RollaEventMap[K]) => void
   ): RollaSubscription {
     if (!SUPPORTED_EVENTS.includes(event)) {
-      throw new Error(`[RollaSdk] Unknown event '${event}'.`);
+      throw new Error(`[RollaWrapper] Unknown event '${event}'.`);
     }
     const emitter = Rolla.getEmitter();
     const sub = emitter.addListener(event, listener);
@@ -142,7 +142,7 @@ export class Rolla {
 
     if (__DEV__ && Rolla._userSubs.size > LISTENER_WARN_THRESHOLD) {
       console.warn(
-        `[RollaSdk] ${Rolla._userSubs.size} listeners attached. ` +
+        `[RollaWrapper] ${Rolla._userSubs.size} listeners attached. ` +
           'This is usually caused by missing cleanup in useEffect — return sub.remove from your effect.'
       );
     }
@@ -167,7 +167,7 @@ export class Rolla {
       // nothing because emission goes via DeviceEventManagerModule.
       Rolla._emitter =
         Platform.OS === 'ios'
-          ? new NativeEventEmitter(NativeModules.RollaSdk)
+          ? new NativeEventEmitter(NativeModules.RollaWrapper)
           : new NativeEventEmitter();
     }
     return Rolla._emitter;

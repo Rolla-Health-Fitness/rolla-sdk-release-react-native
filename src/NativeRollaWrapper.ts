@@ -25,8 +25,8 @@ export interface RollaNativeModule {
   removeListeners(count: number): void;
 }
 
-export const NativeRollaSdk: RollaNativeModule = NativeModules.RollaSdk
-  ? (NativeModules.RollaSdk as RollaNativeModule)
+export const NativeRollaWrapper: RollaNativeModule = NativeModules.RollaWrapper
+  ? (NativeModules.RollaWrapper as RollaNativeModule)
   : (new Proxy(
       {},
       {

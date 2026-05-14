@@ -45,6 +45,16 @@ android.iml
 #
 example/ios/Pods
 
+# Built JS bundle (Release build artifact)
+example/ios/main.jsbundle
+example/ios/assets
+
+# Xcode derived data + caches
+example/ios/build*
+example/android/build
+example/android/.gradle
+example/android/app/build
+
 # Ruby
 example/vendor/
 

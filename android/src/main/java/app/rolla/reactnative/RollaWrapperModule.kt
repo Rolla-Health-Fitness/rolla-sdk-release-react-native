@@ -5,8 +5,6 @@ import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
-import com.facebook.react.bridge.ReactContextBaseJavaModule
-import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.UiThreadUtil
@@ -20,7 +18,7 @@ import com.rolla.sdk.wrapper.RollaError
 import com.rolla.sdk.wrapper.RollaListener
 
 class RollaWrapperModule(reactContext: ReactApplicationContext) :
-    ReactContextBaseJavaModule(reactContext), LifecycleEventListener {
+    NativeRollaWrapperSpec(reactContext), LifecycleEventListener {
 
     private var rolla: Rolla? = null
 
@@ -48,8 +46,7 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         super.invalidate()
     }
 
-    @ReactMethod
-    fun show(config: ReadableMap, promise: Promise) {
+    override fun show(config: ReadableMap, promise: Promise) {
         val activity = currentActivity
             ?: return promise.reject("NO_ACTIVITY", "RollaWrapper.show requires a foreground activity.")
 
@@ -76,16 +73,14 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    @ReactMethod
-    fun dismiss(promise: Promise) {
+    override fun dismiss(promise: Promise) {
         UiThreadUtil.runOnUiThread {
             rolla?.dismiss()
             promise.resolve(null)
         }
     }
 
-    @ReactMethod
-    fun updateToken(
+    override fun updateToken(
         token: String,
         refreshToken: String?,
         expiresIn: Double?,
@@ -108,8 +103,7 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    @ReactMethod
-    fun clearSession(promise: Promise) {
+    override fun clearSession(promise: Promise) {
         UiThreadUtil.runOnUiThread {
             val current = rolla
             if (current == null) {
@@ -123,8 +117,7 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    @ReactMethod
-    fun destroyEngine(promise: Promise) {
+    override fun destroyEngine(promise: Promise) {
         UiThreadUtil.runOnUiThread {
             Rolla.destroyEngine()
             rolla = null
@@ -132,20 +125,23 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    @ReactMethod
-    fun isPresenting(promise: Promise) {
+    override fun isPresenting(promise: Promise) {
         UiThreadUtil.runOnUiThread {
             promise.resolve(rolla?.isPresenting == true)
         }
     }
 
-    @ReactMethod
-    fun getNativeSdkVersion(promise: Promise) {
+    override fun getNativeSdkVersion(promise: Promise) {
         promise.resolve(NATIVE_SDK_VERSION)
     }
 
-    @ReactMethod fun addListener(eventName: String) { /* no-op, required by RN 0.65+ */ }
-    @ReactMethod fun removeListeners(count: Int)   { /* no-op, required by RN 0.65+ */ }
+    override fun addListener(eventName: String) {
+        // no-op, required by RN 0.65+ NativeEventEmitter
+    }
+
+    override fun removeListeners(count: Double) {
+        // no-op, required by RN 0.65+ NativeEventEmitter
+    }
 
     private fun emit(event: String, payload: WritableMap?) {
         reactApplicationContext

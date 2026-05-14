@@ -21,6 +21,12 @@ The JS package version is decoupled from the native artifact versions. **Both** 
 
 ---
 
+## Reference integration
+
+A complete working integration lives at [`rolla-sdk-demo-react-native`](https://github.com/Rolla-Health-Fitness/rolla-sdk-demo-react-native) on the `dev` branch — fresh RN 0.80.3 scaffold, full Podfile, full `settings.gradle`, token-refresh flow, all the hooks below. When the docs and your build disagree, the demo is the source of truth.
+
+---
+
 ## Installation
 
 ### 1. Install the package
@@ -32,6 +38,18 @@ npm install @rolla-health/react-native-sdk
 ```
 
 No authentication required — the package is published to the public npm registry.
+
+Also make sure your `package.json` pins React to **exactly** `19.1.0` (no caret), to match the RN renderer:
+
+```jsonc
+{
+  "dependencies": {
+    "react": "19.1.0",            // exact, not "^19.1.0"
+    "react-native": "0.80.3",
+    "@rolla-health/react-native-sdk": "^0.1.0"
+  }
+}
+```
 
 ### 2. iOS — add the Rolla CocoaPods source and configure your Podfile
 
@@ -46,17 +64,36 @@ platform :ios, '15.1'
 source 'https://github.com/Rolla-Health-Fitness/rolla-sdk-release-ios.git'
 source 'https://cdn.cocoapods.org/'
 
+# Required: RollaSDK vendors xcframeworks (Flutter, Mapbox, etc.).
+# Static linkage keeps your other RN pods working.
+use_frameworks! :linkage => :static
+
+# Required: Flipper does not support framework linkage.
+ENV['NO_FLIPPER'] = '1'
+
 target 'YourApp' do
   config = use_native_modules!
 
-  # Required: RollaSDK vendors xcframeworks (Flutter, Mapbox, etc.).
-  # Static linkage keeps your other RN pods working.
-  use_frameworks! :linkage => :static
+  # Required: NordicDFU.xcframework (vendored by RollaSDK) was pre-built
+  # expecting ZIPFoundation as a *dynamic* framework. Under our global
+  # static linkage, ZIPFoundation would otherwise be statically linked
+  # into the app binary and not embedded in Frameworks/, causing
+  # `dyld: Library not loaded: @rpath/ZIPFoundation.framework/ZIPFoundation`
+  # at app launch.
+  pre_install do |installer|
+    installer.pod_targets.each do |pod|
+      if pod.name == 'ZIPFoundation'
+        def pod.build_type
+          Pod::BuildType.dynamic_framework
+        end
+      end
+    end
+  end
 
-  # Required: Flipper does not support framework linkage.
-  flipper_configuration = FlipperConfiguration.disabled
-
-  use_react_native!(:path => config[:reactNativePath])
+  use_react_native!(
+    :path => config[:reactNativePath],
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
 
   post_install do |installer|
     react_native_post_install(installer, config[:reactNativePath], :mac_catalyst_enabled => false)
@@ -66,6 +103,16 @@ target 'YourApp' do
         # Xcode 15+ ships User Script Sandboxing on by default. CocoaPods'
         # resource-copy scripts for vendored xcframeworks need it off.
         c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+
+        # NordicDFU.xcframework was pre-built targeting iOS 14.0. Its
+        # .swiftinterface imports ZIPFoundation; if ZIPFoundation is
+        # rebuilt at 15.1 the swiftinterface fails to compile with
+        # "compiling for iOS 14.0, but module 'ZIPFoundation' has a
+        # minimum deployment target of iOS 15.1". Pin ZIPFoundation
+        # to iOS 14.0; the host app deployment target stays at 15.1.
+        if target.name == 'ZIPFoundation'
+          c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+        end
       end
     end
   end
@@ -79,6 +126,8 @@ cd ios && pod install
 ```
 
 Open the `.xcworkspace`, not the `.xcodeproj`.
+
+Bundle ID note: do **not** pass `PRODUCT_BUNDLE_IDENTIFIER=...` as a global `xcodebuild` override or as an arg shared with the Pods project — CocoaPods then assigns your app's bundle ID to its sub-frameworks (e.g. ZIPFoundation) and `devicectl install` rejects the app with `parent bundle has the same identifier as sub-bundle`. Set the bundle ID directly in the app target's `project.pbxproj` instead.
 
 ### 3. Android — register the three Maven repositories
 
@@ -126,6 +175,10 @@ dependencies {
 ```
 
 `minSdkVersion` must be **26 or higher**.
+
+### 4. Verify the integration
+
+After installing on a physical device, call `Rolla.getNativeSdkVersion()` once on app load — it should resolve with `'0.1.10'` (or whatever the current native pin is). If you instead get `Invariant Violation: TurboModuleRegistry.getEnforcing('RollaWrapper') could not be found`, the autolinking did not pick up the wrapper — clean `ios/Pods` + `android/build/` and re-install.
 
 > [!IMPORTANT]
 > **Whenever you bump `@rolla-health/react-native-sdk` to a version that points at a different native artifact, run:**
@@ -204,9 +257,9 @@ useEffect(() => {
 
 ### iOS
 
-- **`use_frameworks!` is mandatory.** The underlying `RollaSDK` pod vendors 27 pre-built `.xcframework` bundles (Flutter engine, Mapbox SDK, plugins). You must use `:linkage => :static` to keep static-linked RN pods working. Flipper does not support framework linkage and must be disabled.
-- **`ENABLE_USER_SCRIPT_SANDBOXING` must be `NO`.** Xcode 15+ defaults this on, and it breaks CocoaPods' resource-copy scripts for vendored xcframeworks.
-- **Force `ZIPFoundation` to a dynamic framework.** `NordicDFU.xcframework` (vendored by `RollaSDK`) was pre-built linking `ZIPFoundation` as a dynamic dependency. Under `:linkage => :static`, `ZIPFoundation` is otherwise statically linked into the app binary and not embedded in `Frameworks/`, causing `dyld: Library not loaded: @rpath/ZIPFoundation.framework/ZIPFoundation` at launch. Add a `pre_install` hook to your Podfile that flips `ZIPFoundation` to a dynamic framework — see the demo Podfile for the exact snippet.
+- **`use_frameworks!` is mandatory.** The underlying `RollaSDK` pod vendors 27 pre-built `.xcframework` bundles (Flutter engine, Mapbox SDK, plugins). You must use `:linkage => :static` to keep static-linked RN pods working. Flipper does not support framework linkage and must be disabled via `ENV['NO_FLIPPER'] = '1'`.
+- **`ENABLE_USER_SCRIPT_SANDBOXING` must be `NO`.** Xcode 15+ defaults this on, and it breaks CocoaPods' resource-copy scripts for vendored xcframeworks. The Installation Podfile snippet above includes the post-install hook that turns it off.
+- **Force `ZIPFoundation` to a dynamic framework + pin its iOS deployment target to 14.0.** `NordicDFU.xcframework` (vendored by `RollaSDK`) was pre-built linking `ZIPFoundation` as a dynamic dependency at iOS 14.0. Both the `pre_install` hook (forcing dynamic build type) and the `post_install` hook (`IPHONEOS_DEPLOYMENT_TARGET = '14.0'` on ZIPFoundation) are included in the Installation Podfile snippet above — without both, you get either `dyld: Library not loaded: @rpath/ZIPFoundation.framework/ZIPFoundation` at launch or `compiling for iOS 14.0, but module 'ZIPFoundation' has a minimum deployment target of iOS 15.1` at build.
 - **`.xcode.env` must point at an absolute `node` path.** Xcode's script-phase shell does not source your interactive PATH, so `command -v node` returns empty and Hermes' replace-config script fails with `: command not found`. Hard-code `export NODE_BINARY=/opt/homebrew/bin/node` (or your equivalent) in `ios/.xcode.env`.
 
 ### Android
@@ -221,7 +274,8 @@ useEffect(() => {
 
 ### Cross-platform
 
-- **React Native New Architecture (Bridgeless) is not supported in v1.** Old-architecture and New Arch (Fabric/TurboModules) interop on `>= 0.80.3` both work; bridgeless mode does not.
+- **React Native New Architecture (Bridgeless + TurboModule) IS supported.** Verified E2E on RN `0.80.3` with `newArchEnabled=true` and Bridgeless mode on both physical iOS and Android devices. The wrapper ships a codegen-backed TurboModule (`<NativeRollaWrapperSpec>`).
+- **React version must be exactly `19.1.0`.** This is an RN ecosystem constraint, not a Rolla one: `react-native@0.80.3` ships a pre-built renderer that hardcodes `if ("19.1.0" !== React.version) throw …`. The fresh RN template pins exact; if you've widened it to `^19.1.0`, `npm install` may resolve to `19.2.x` and crash at launch with `Incompatible React versions`. Pin `"react": "19.1.0"` in your `package.json`.
 - **Run on real devices.** BLE and GPS features require physical handsets — emulators will not validate the full integration.
 
 ### Transitive iOS pod dependencies

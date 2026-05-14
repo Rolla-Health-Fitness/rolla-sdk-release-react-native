@@ -129,7 +129,55 @@ Open the `.xcworkspace`, not the `.xcodeproj`.
 
 Bundle ID note: do **not** pass `PRODUCT_BUNDLE_IDENTIFIER=...` as a global `xcodebuild` override or as an arg shared with the Pods project — CocoaPods then assigns your app's bundle ID to its sub-frameworks (e.g. ZIPFoundation) and `devicectl install` rejects the app with `parent bundle has the same identifier as sub-bundle`. Set the bundle ID directly in the app target's `project.pbxproj` instead.
 
-### 3. Android — register the three Maven repositories
+### 3. iOS — add the required `Info.plist` keys
+
+The RollaSDK uses Bluetooth Low Energy, Core Location, Core Motion, HealthKit, and Photos. iOS will call `abort()` (SIGABRT) the moment the SDK touches any of these without a corresponding usage-description string in `Info.plist`. The fresh RN template only ships an empty `NSLocationWhenInUseUsageDescription` — every other key below must be added by hand.
+
+Also required: a `MBXAccessToken` (Mapbox public token) and a `UIBackgroundModes` array including `bluetooth-central` and `location` so the band stays paired when the app is backgrounded.
+
+Edit `ios/<YourApp>/Info.plist` and add — inside the top-level `<dict>` — the following keys. Customize the strings to match your app's wording; they are shown to the user in the OS permission dialog.
+
+```xml
+<key>MBXAccessToken</key>
+<string>YOUR_MAPBOX_PUBLIC_TOKEN</string>
+
+<key>NSBluetoothAlwaysUsageDescription</key>
+<string>Bluetooth access lets the app connect to your fitness band and keep syncing data, even when the app isn't open.</string>
+
+<key>NSBluetoothPeripheralUsageDescription</key>
+<string>The app uses Bluetooth to connect to your fitness band and sync health data.</string>
+
+<key>NSHealthShareUsageDescription</key>
+<string>The app reads your health and fitness data to track workouts, monitor activity, and surface insights.</string>
+
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+<string>The app uses your location to accurately track outdoor activities like running and cycling — even when your phone is locked or the app is backgrounded.</string>
+
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>The app uses your location to track outdoor activities like running and cycling. With 'While Using the App', your route is recorded only when the app is open.</string>
+
+<key>NSMotionUsageDescription</key>
+<string>Motion data is used to detect activities and estimate calorie burn.</string>
+
+<key>NSPhotoLibraryAddUsageDescription</key>
+<string>Save your activity images to Photos.</string>
+
+<key>NSPhotoLibraryUsageDescription</key>
+<string>Access your photo library to select a profile picture.</string>
+
+<key>UIBackgroundModes</key>
+<array>
+  <string>location</string>
+  <string>bluetooth-central</string>
+</array>
+```
+
+Mint your `MBXAccessToken` at https://account.mapbox.com (free tier is sufficient for development; production traffic will need a paid token). Use a **public** token (starts with `pk.`) — secret tokens (`sk.`) are not valid for client-side use.
+
+> [!WARNING]
+> Skipping any of `NSBluetoothAlwaysUsageDescription`, `NSLocationWhenInUseUsageDescription`, or `NSMotionUsageDescription` will crash the app at `Rolla.show()` with `App terminated due to signal 6.` from `CBCentralManager`, `CLLocationManager`, or `CMMotionManager` respectively — the abort is silent in console logs.
+
+### 4. Android — register the three Maven repositories
 
 The native `com.rolla.sdk:android_release` artifact and its Flutter/Mapbox transitive dependencies live in three separate public Maven repositories. You must register them in your app's `android/settings.gradle` (libraries cannot declare these repositories on your behalf under the strict resolution mode RN templates use).
 
@@ -176,7 +224,9 @@ dependencies {
 
 `minSdkVersion` must be **26 or higher**.
 
-### 4. Verify the integration
+The Android side does not need extra manifest permission strings — the native `com.rolla.sdk:android_release` AAR declares its required `BLUETOOTH_*`, `ACCESS_*_LOCATION`, `ACTIVITY_RECOGNITION`, and foreground-service permissions, and they are merged into your app's `AndroidManifest.xml` automatically by AGP.
+
+### 5. Verify the integration
 
 After installing on a physical device, call `Rolla.getNativeSdkVersion()` once on app load — it should resolve with `'0.1.10'` (or whatever the current native pin is). If you instead get `Invariant Violation: TurboModuleRegistry.getEnforcing('RollaWrapper') could not be found`, the autolinking did not pick up the wrapper — clean `ios/Pods` + `android/build/` and re-install.
 

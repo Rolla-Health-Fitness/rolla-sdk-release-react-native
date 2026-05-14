@@ -1,4 +1,42 @@
-rootProject.name = 'rollahealth.reactnativesdk.example'
-apply from: file("../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesSettingsGradle(settings)
+pluginManagement {
+    includeBuild("../node_modules/@react-native/gradle-plugin")
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+}
+
+plugins {
+    id("com.facebook.react.settings")
+}
+
+dependencyResolutionManagement {
+    // RollaWrapper lives in the Rolla SDK Maven repo; its transitive Flutter
+    // and Mapbox deps live in their respective public Maven repos.
+    //
+    // PREFER_SETTINGS lets repositories declared here win, while still
+    // permitting plugins (notably com.facebook.react.rootproject) to add
+    // their own — FAIL_ON_PROJECT_REPOS would reject the RN plugin's contribution.
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+
+        // Rolla SDK
+        maven { url 'https://rolla-health-fitness.github.io/rolla-sdk-release-android/maven/' }
+
+        // Flutter engine artifacts (bundled inside the Rolla SDK)
+        maven { url 'https://storage.googleapis.com/download.flutter.io' }
+
+        // Mapbox SDK (public, no token required)
+        maven { url 'https://api.mapbox.com/downloads/v2/releases/maven' }
+    }
+}
+
+extensions.configure(com.facebook.react.ReactSettingsExtension) { ex -> ex.autolinkLibrariesFromCommand() }
+
+rootProject.name = 'RollaWrapperScaffoldExample'
 include ':app'
+
 includeBuild('../node_modules/@react-native/gradle-plugin')

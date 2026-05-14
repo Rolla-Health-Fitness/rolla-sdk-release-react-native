@@ -9,6 +9,10 @@
 
 apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
+// Required for TurboModule codegen to run against our `src/NativeRollaWrapper.ts`
+// spec; without this, the consumer build can't produce `NativeRollaWrapperSpec`
+// and our Kotlin module's `extends NativeRollaWrapperSpec` fails to compile.
+apply plugin: "com.facebook.react"
 
 
 def getExtOrIntegerDefault(name) {

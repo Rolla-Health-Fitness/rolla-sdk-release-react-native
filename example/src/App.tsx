@@ -1,47 +1,42 @@
 import { useEffect, useState } from 'react';
-import { Button, StyleSheet, Text, View } from 'react-native';
-
-import { Rolla, type RollaCloseEvent } from '@rolla-health/react-native-sdk';
+import { Text, View, StyleSheet, Pressable } from 'react-native';
+import { Rolla } from '@rolla-health/react-native-sdk';
 
 export default function App() {
-  const [version, setVersion] = useState<string>('?');
-  const [lastClose, setLastClose] = useState<RollaCloseEvent | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState<string>('(loading…)');
+  const [showStatus, setShowStatus] = useState<string>('idle');
 
   useEffect(() => {
     Rolla.getNativeSdkVersion()
-      .then(setVersion)
-      .catch(() => setVersion('unavailable'));
-
-    const errorSub = Rolla.addListener('onError', (e) => {
-      setError(`${e.code}: ${e.message}`);
-    });
-    return () => errorSub.remove();
+      .then((v) => setVersion(v))
+      .catch((e) => setVersion(`ERROR: ${e?.message ?? e}`));
   }, []);
 
   const onPress = async () => {
-    setError(null);
     try {
-      const close = await Rolla.show({
-        token: 'replace-with-real-token',
-        partnerId: 'replace-with-real-partner-id',
+      setShowStatus('calling show()…');
+      const closed = await Rolla.show({
+        token: 'bogus-test-token',
+        partnerId: 'demo',
         environment: 'rnd',
       });
-      setLastClose(close);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setShowStatus(`closed: ${closed.reason}`);
+    } catch (e: any) {
+      setShowStatus(`reject: ${e?.code ?? '?'} — ${e?.message ?? e}`);
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Rolla SDK smoke test</Text>
-      <Text>Native version: {version}</Text>
-      <View style={styles.spacer} />
-      <Button title="Open Rolla" onPress={onPress} />
-      <View style={styles.spacer} />
-      {lastClose && <Text>Last close: {lastClose.reason}</Text>}
-      {error && <Text style={styles.error}>Error: {error}</Text>}
+      <Text style={styles.label}>@rolla-health/react-native-sdk</Text>
+      <Text style={styles.result}>native version: {version}</Text>
+      <Pressable style={styles.btn} onPress={onPress}>
+        <Text style={styles.btnText}>Tap to call Rolla.show()</Text>
+      </Pressable>
+      <Text style={styles.status}>{showStatus}</Text>
+      <Text style={styles.ok}>
+        {version === '0.1.10' ? '✅ TURBO MODULE OK' : '⏳ awaiting native…'}
+      </Text>
     </View>
   );
 }
@@ -51,9 +46,24 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
+    backgroundColor: '#0f7a3a',
+    padding: 24,
   },
-  title: { fontSize: 18, fontWeight: '600', marginBottom: 12 },
-  spacer: { height: 12 },
-  error: { color: 'crimson', marginTop: 8 },
+  label: { color: 'white', fontSize: 14, marginBottom: 8 },
+  result: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  btn: {
+    backgroundColor: 'white',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  btnText: { color: '#0f7a3a', fontWeight: 'bold' },
+  status: { color: 'yellow', fontSize: 14, marginBottom: 16 },
+  ok: { color: 'yellow', fontSize: 20, fontWeight: 'bold' },
 });

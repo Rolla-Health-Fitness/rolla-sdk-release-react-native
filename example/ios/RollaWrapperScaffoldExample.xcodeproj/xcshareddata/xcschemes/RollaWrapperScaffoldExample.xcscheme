@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "ReactNativeSdkExample.app"
-               BlueprintName = "ReactNativeSdkExample"
-               ReferencedContainer = "container:ReactNativeSdkExample.xcodeproj">
+               BuildableName = "RollaWrapperScaffoldExample.app"
+               BlueprintName = "RollaWrapperScaffoldExample"
+               ReferencedContainer = "container:RollaWrapperScaffoldExample.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "00E356ED1AD99517003FC87E"
-               BuildableName = "ReactNativeSdkExampleTests.xctest"
-               BlueprintName = "ReactNativeSdkExampleTests"
-               ReferencedContainer = "container:ReactNativeSdkExample.xcodeproj">
+               BuildableName = "RollaWrapperScaffoldExampleTests.xctest"
+               BlueprintName = "RollaWrapperScaffoldExampleTests"
+               ReferencedContainer = "container:RollaWrapperScaffoldExample.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "ReactNativeSdkExample.app"
-            BlueprintName = "ReactNativeSdkExample"
-            ReferencedContainer = "container:ReactNativeSdkExample.xcodeproj">
+            BuildableName = "RollaWrapperScaffoldExample.app"
+            BlueprintName = "RollaWrapperScaffoldExample"
+            ReferencedContainer = "container:RollaWrapperScaffoldExample.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "ReactNativeSdkExample.app"
-            BlueprintName = "ReactNativeSdkExample"
-            ReferencedContainer = "container:ReactNativeSdkExample.xcodeproj">
+            BuildableName = "RollaWrapperScaffoldExample.app"
+            BlueprintName = "RollaWrapperScaffoldExample"
+            ReferencedContainer = "container:RollaWrapperScaffoldExample.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

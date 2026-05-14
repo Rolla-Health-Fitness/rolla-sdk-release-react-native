@@ -1,6 +1,6 @@
-import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
+import { NativeEventEmitter, Platform } from 'react-native';
 
-import { NativeRollaWrapper } from './NativeRollaWrapper';
+import NativeRollaWrapper from './NativeRollaWrapper';
 import type {
   RollaCloseEvent,
   RollaConfiguration,
@@ -67,18 +67,16 @@ export class Rolla {
 
     Rolla._closeSub = emitter.addListener(
       'onClose',
-      (event: RollaCloseEvent) => {
+      ((event: RollaCloseEvent) => {
         const resolver = Rolla._showResolver;
         Rolla.cleanupShowSubs();
         resolver?.(event);
-      }
+      }) as (...args: readonly Object[]) => unknown
     );
 
     Rolla._errorSub = emitter.addListener('onError', (event) => {
-      // `onError` does not auto-resolve `show()` — close still arrives separately
-      // from the native side. We just re-emit to user listeners. Keep `show()`'s
-      // promise pending until `onClose` fires.
       if (__DEV__ && Rolla._userSubs.size === 0) {
+        // eslint-disable-next-line no-console
         console.warn(
           '[RollaWrapper] Native error received but no JS listener attached:',
           event
@@ -87,7 +85,7 @@ export class Rolla {
     });
 
     try {
-      await NativeRollaWrapper.show(config);
+      await NativeRollaWrapper.show(config as unknown as Object);
     } catch (err) {
       Rolla.cleanupShowSubs();
       Rolla._showResolver = null;
@@ -137,10 +135,14 @@ export class Rolla {
       throw new Error(`[RollaWrapper] Unknown event '${event}'.`);
     }
     const emitter = Rolla.getEmitter();
-    const sub = emitter.addListener(event, listener);
+    const sub = emitter.addListener(
+      event,
+      listener as (...args: readonly Object[]) => unknown
+    );
     Rolla._userSubs.add(sub);
 
     if (__DEV__ && Rolla._userSubs.size > LISTENER_WARN_THRESHOLD) {
+      // eslint-disable-next-line no-console
       console.warn(
         `[RollaWrapper] ${Rolla._userSubs.size} listeners attached. ` +
           'This is usually caused by missing cleanup in useEffect — return sub.remove from your effect.'
@@ -162,12 +164,12 @@ export class Rolla {
 
   private static getEmitter(): NativeEventEmitter {
     if (!Rolla._emitter) {
-      // On iOS we hand the native module (it's an RCTEventEmitter subclass) so
-      // RN does not log "Sending event with no listeners". On Android we pass
-      // nothing because emission goes via DeviceEventManagerModule.
+      // On iOS pass the TurboModule (it inherits RCTEventEmitter on the
+      // native side) so RN does not log "Sending event with no listeners".
+      // On Android pass nothing; emission goes via RCTDeviceEventEmitter.
       Rolla._emitter =
         Platform.OS === 'ios'
-          ? new NativeEventEmitter(NativeModules.RollaWrapper)
+          ? new NativeEventEmitter(NativeRollaWrapper as unknown as never)
           : new NativeEventEmitter();
     }
     return Rolla._emitter;

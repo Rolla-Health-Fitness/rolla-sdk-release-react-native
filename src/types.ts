@@ -8,12 +8,7 @@
  * Modal-only — no Pigeon parity in JS.
  */
 
-export type RollaEnvironment =
-  | 'production'
-  | 'staging'
-  | 'development'
-  | 'rnd'
-  | string;
+export type RollaEnvironment = 'production' | 'rnd';
 
 /**
  * Reasons the native SDK reports when the modal is dismissed.

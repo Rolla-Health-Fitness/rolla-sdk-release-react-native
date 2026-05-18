@@ -250,7 +250,7 @@ const closeEvent = await Rolla.show({
   refreshToken: 'optional-refresh-token',
   tokenExpiresIn: 3600,
   partnerId: 'your-partner-id',
-  environment: 'production', // 'production' | 'staging' | 'rnd'
+  environment: 'production', // 'production' | 'rnd'
   branding: {
     appName: 'Acme Health',
     primaryColor: '#6750A4',

@@ -2366,7 +2366,7 @@ __metadata:
     "@react-native/typescript-config": "npm:0.80.3"
     "@types/react": "npm:^19.1.0"
     react: "npm:19.1.0"
-    react-native: "npm:0.80.3"
+    react-native: "patch:react-native@npm%3A0.80.3#~/.yarn/patches/react-native-npm-0.80.3-e78d61a7ea.patch"
     react-native-builder-bob: "npm:^0.41.0"
     react-native-monorepo-config: "npm:^0.3.3"
   languageName: unknown
@@ -2389,7 +2389,7 @@ __metadata:
     eslint-plugin-prettier: "npm:^5.5.5"
     prettier: "npm:^3.8.1"
     react: "npm:19.1.0"
-    react-native: "npm:0.80.3"
+    react-native: "patch:react-native@npm%3A0.80.3#~/.yarn/patches/react-native-npm-0.80.3-e78d61a7ea.patch"
     react-native-builder-bob: "npm:^0.41.0"
     turbo: "npm:^2.8.21"
     typescript: "npm:^6.0.2"
@@ -7298,6 +7298,57 @@ __metadata:
   bin:
     react-native: cli.js
   checksum: 10c0/5b5c21b716a19e4dd2e86640f7e561db6c4b0c9a1aff70279c962e3b930b39c1d5e43f56b109b1bdee4e3f9c7353b5fda6d750f9aa705b76452d5654f9946cea
+  languageName: node
+  linkType: hard
+
+"react-native@patch:react-native@npm%3A0.80.3#~/.yarn/patches/react-native-npm-0.80.3-e78d61a7ea.patch":
+  version: 0.80.3
+  resolution: "react-native@patch:react-native@npm%3A0.80.3#~/.yarn/patches/react-native-npm-0.80.3-e78d61a7ea.patch::version=0.80.3&hash=fd277f"
+  dependencies:
+    "@jest/create-cache-key-function": "npm:^29.7.0"
+    "@react-native/assets-registry": "npm:0.80.3"
+    "@react-native/codegen": "npm:0.80.3"
+    "@react-native/community-cli-plugin": "npm:0.80.3"
+    "@react-native/gradle-plugin": "npm:0.80.3"
+    "@react-native/js-polyfills": "npm:0.80.3"
+    "@react-native/normalize-colors": "npm:0.80.3"
+    "@react-native/virtualized-lists": "npm:0.80.3"
+    abort-controller: "npm:^3.0.0"
+    anser: "npm:^1.4.9"
+    ansi-regex: "npm:^5.0.0"
+    babel-jest: "npm:^29.7.0"
+    babel-plugin-syntax-hermes-parser: "npm:0.28.1"
+    base64-js: "npm:^1.5.1"
+    chalk: "npm:^4.0.0"
+    commander: "npm:^12.0.0"
+    flow-enums-runtime: "npm:^0.0.6"
+    glob: "npm:^7.1.1"
+    invariant: "npm:^2.2.4"
+    jest-environment-node: "npm:^29.7.0"
+    memoize-one: "npm:^5.0.0"
+    metro-runtime: "npm:^0.82.2"
+    metro-source-map: "npm:^0.82.2"
+    nullthrows: "npm:^1.1.1"
+    pretty-format: "npm:^29.7.0"
+    promise: "npm:^8.3.0"
+    react-devtools-core: "npm:^6.1.1"
+    react-refresh: "npm:^0.14.0"
+    regenerator-runtime: "npm:^0.13.2"
+    scheduler: "npm:0.26.0"
+    semver: "npm:^7.1.3"
+    stacktrace-parser: "npm:^0.1.10"
+    whatwg-fetch: "npm:^3.0.0"
+    ws: "npm:^6.2.3"
+    yargs: "npm:^17.6.2"
+  peerDependencies:
+    "@types/react": ^19.1.0
+    react: ^19.1.0
+  peerDependenciesMeta:
+    "@types/react":
+      optional: true
+  bin:
+    react-native: cli.js
+  checksum: 10c0/8f3c8ed4762bb10e9d5cbc19b2c345226ec44077f3fd96cdc03c517efade773ad2fed788a6de4066a8a6eb369b1441a4e137f0468c927e40f651dd626d9e2c94
   languageName: node
   linkType: hard
 

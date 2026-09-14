@@ -65,18 +65,16 @@ export class Rolla {
       Rolla._showResolver = resolve;
     });
 
-    Rolla._closeSub = emitter.addListener(
-      'onClose',
-      ((event: RollaCloseEvent) => {
-        const resolver = Rolla._showResolver;
-        Rolla.cleanupShowSubs();
-        resolver?.(event);
-      }) as (...args: readonly Object[]) => unknown
-    );
+    Rolla._closeSub = emitter.addListener('onClose', ((
+      event: RollaCloseEvent
+    ) => {
+      const resolver = Rolla._showResolver;
+      Rolla.cleanupShowSubs();
+      resolver?.(event);
+    }) as (...args: readonly Object[]) => unknown);
 
     Rolla._errorSub = emitter.addListener('onError', (event) => {
       if (__DEV__ && Rolla._userSubs.size === 0) {
-        // eslint-disable-next-line no-console
         console.warn(
           '[RollaWrapper] Native error received but no JS listener attached:',
           event
@@ -142,7 +140,6 @@ export class Rolla {
     Rolla._userSubs.add(sub);
 
     if (__DEV__ && Rolla._userSubs.size > LISTENER_WARN_THRESHOLD) {
-      // eslint-disable-next-line no-console
       console.warn(
         `[RollaWrapper] ${Rolla._userSubs.size} listeners attached. ` +
           'This is usually caused by missing cleanup in useEffect — return sub.remove from your effect.'

@@ -1,6 +1,5 @@
 package app.rolla.reactnative
 
-import android.graphics.Color
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
@@ -11,11 +10,16 @@ import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.rolla.sdk.wrapper.Rolla
-import com.rolla.sdk.wrapper.RollaBranding
-import com.rolla.sdk.wrapper.RollaCloseReason
-import com.rolla.sdk.wrapper.RollaConfiguration
-import com.rolla.sdk.wrapper.RollaError
 import com.rolla.sdk.wrapper.RollaListener
+import com.rolla.sdk.wrapper.config.RollaBranding
+import com.rolla.sdk.wrapper.config.RollaConfiguration
+import com.rolla.sdk.wrapper.config.RollaDataSource
+import com.rolla.sdk.wrapper.config.RollaDisabledModule
+import com.rolla.sdk.wrapper.config.RollaLanguage
+import com.rolla.sdk.wrapper.config.RollaThemeMode
+import com.rolla.sdk.wrapper.config.RollaTransition
+import com.rolla.sdk.wrapper.features.session.RollaCloseReason
+import com.rolla.sdk.wrapper.features.session.RollaError
 
 class RollaWrapperModule(reactContext: ReactApplicationContext) :
     NativeRollaWrapperSpec(reactContext), LifecycleEventListener {
@@ -46,8 +50,8 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         super.invalidate()
     }
 
-    override fun show(config: ReadableMap, promise: Promise) {
-        val activity = currentActivity
+    override fun show(config: ReadableMap, transition: String, promise: Promise) {
+        val activity = reactApplicationContext.currentActivity
             ?: return promise.reject("NO_ACTIVITY", "RollaWrapper.show requires a foreground activity.")
 
         UiThreadUtil.runOnUiThread {
@@ -61,12 +65,15 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
                     return@runOnUiThread
                 }
 
-                val configuration = buildConfiguration(config)
+                val configuration = RollaConfigurationParser.configuration(config)
+                val rollaTransition = RollaConfigurationParser.transition(transition)
                 val instance = Rolla(configuration)
                 instance.listener = RollaListenerAdapter()
                 rolla = instance
-                instance.show(activity)
+                instance.show(activity, rollaTransition)
                 promise.resolve(null)
+            } catch (e: IllegalArgumentException) {
+                promise.reject("INVALID_CONFIG", e.message ?: "Invalid Rolla configuration.", e)
             } catch (t: Throwable) {
                 promise.reject("SHOW_FAILED", t.message ?: "Failed to launch Rolla.", t)
             }
@@ -132,7 +139,9 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
     }
 
     override fun getNativeSdkVersion(promise: Promise) {
-        promise.resolve(NATIVE_SDK_VERSION)
+        // Injected by android/build.gradle from package.json `nativeSdkVersion` —
+        // the same field the Gradle dependency is pinned from.
+        promise.resolve(BuildConfig.NATIVE_SDK_VERSION)
     }
 
     override fun addListener(eventName: String) {
@@ -149,60 +158,6 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
             .emit(event, payload)
     }
 
-    private fun buildConfiguration(map: ReadableMap): RollaConfiguration {
-        val token = map.getString("token")
-            ?: throw IllegalArgumentException("Missing required field 'token'.")
-        val partnerId = map.getString("partnerId")
-            ?: throw IllegalArgumentException("Missing required field 'partnerId'.")
-
-        val environment = map.getStringOrNull("environment") ?: "rnd"
-        val modules: List<String>? = when {
-            map.hasKey("disabledModules") && !map.isNull("disabledModules") ->
-                map.getArray("disabledModules")?.toStringList()
-            map.hasKey("modules") && !map.isNull("modules") ->
-                map.getArray("modules")?.toStringList()
-            else -> null
-        }
-
-        return RollaConfiguration(
-            token = token,
-            partnerId = partnerId,
-            refreshToken = map.getStringOrNull("refreshToken"),
-            tokenExpiresIn = map.getIntOrNull("tokenExpiresIn"),
-            userId = map.getStringOrNull("userId"),
-            environment = environment,
-            modules = modules,
-            branding = if (map.hasKey("branding") && !map.isNull("branding"))
-                buildBranding(map.getMap("branding")!!) else null,
-            showSettingsButton = if (map.hasKey("showSettingsButton"))
-                map.getBoolean("showSettingsButton") else true
-        )
-    }
-
-    private fun buildBranding(map: ReadableMap): RollaBranding {
-        return RollaBranding(
-            appName = map.getStringOrNull("appName") ?: "Rolla",
-            primaryColor = parseColorOrDefault(map.getStringOrNull("primaryColor"), 0xFF6750A4.toInt()),
-            secondaryColor = parseColorOrDefault(map.getStringOrNull("secondaryColor"), 0xFF625B71.toInt()),
-            accentColor = parseColorOrDefault(map.getStringOrNull("accentColor"), 0xFF7D5260.toInt()),
-            brightness = map.getStringOrNull("brightness") ?: "light",
-            defaultThemeMode = map.getStringOrNull("defaultThemeMode") ?: "system",
-            defaultLocale = map.getStringOrNull("defaultLocale"),
-            headerLogoAsset = map.getStringOrNull("headerLogoAsset"),
-            termsUrl = map.getStringOrNull("termsUrl"),
-            privacyUrl = map.getStringOrNull("privacyUrl")
-        )
-    }
-
-    private fun parseColorOrDefault(hex: String?, fallback: Int): Int {
-        if (hex.isNullOrBlank()) return fallback
-        return try {
-            Color.parseColor(if (hex.startsWith("#")) hex else "#$hex")
-        } catch (_: IllegalArgumentException) {
-            fallback
-        }
-    }
-
     private inner class RollaListenerAdapter : RollaListener {
 
         override fun onRollaClosed(rolla: Rolla, reason: RollaCloseReason) {
@@ -211,9 +166,19 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         }
 
         override fun onRollaError(rolla: Rolla, error: RollaError) {
+            // A failed show() reaches here after the SDK has torn its
+            // presentation down, so `isPresenting` is already false; an error
+            // raised while the SDK UI is running leaves it true.
+            // AlreadyPresenting is the one failure that leaves the flag true
+            // for the *other* presentation, so it is special-cased.
+            val presentationFailed = !rolla.isPresenting || error is RollaError.AlreadyPresenting
+            if (presentationFailed && this@RollaWrapperModule.rolla === rolla) {
+                this@RollaWrapperModule.rolla = null
+            }
             val payload = Arguments.createMap().apply {
                 putString("code", error.code)
                 putString("message", error.message)
+                putBoolean("presentationFailed", presentationFailed)
             }
             emit("onError", payload)
         }
@@ -256,7 +221,110 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
 
     companion object {
         const val NAME = "RollaWrapper"
-        private const val NATIVE_SDK_VERSION = "0.1.10"
+    }
+}
+
+/**
+ * Translates the JS `RollaConfiguration` map into the SDK's typed configuration.
+ * Absent keys and JS `null` both mean "unset" and leave the SDK default in
+ * place; a present key with a value the SDK does not know throws
+ * [IllegalArgumentException], surfaced to JS as `INVALID_CONFIG` rather than a
+ * silent drop.
+ */
+private object RollaConfigurationParser {
+
+    fun configuration(map: ReadableMap): RollaConfiguration {
+        val token = map.getStringOrNull("token")?.takeIf { it.isNotEmpty() }
+            ?: throw IllegalArgumentException("Missing required field 'token'.")
+        val partnerId = map.getStringOrNull("partnerId")?.takeIf { it.isNotEmpty() }
+            ?: throw IllegalArgumentException("Missing required field 'partnerId'.")
+
+        return RollaConfiguration(
+            token = token,
+            partnerId = partnerId,
+            refreshToken = map.getStringOrNull("refreshToken"),
+            tokenExpiresIn = map.getIntOrNull("tokenExpiresIn"),
+            userId = map.getStringOrNull("userId"),
+            environment = map.getStringOrNull("environment") ?: "rnd",
+            disabledModules = enumSet(map, "disabledModules", RollaDisabledModule.entries) { it.rawValue },
+            disabledDataSources = enumSet(map, "disabledDataSources", RollaDataSource.entries) { it.rawValue },
+            language = optionalEnum(map, "language", RollaLanguage.entries) { it.rawValue },
+            branding = map.getMapOrNull("branding")?.let(::branding),
+            // Defaults mirror RollaConfiguration's own so an unset key behaves
+            // exactly like a native host that omitted the argument.
+            showOptionsButton = map.getBooleanOrNull("showOptionsButton") ?: true,
+            showGoalsSection = map.getBooleanOrNull("showGoalsSection") ?: false,
+        )
+    }
+
+    fun branding(map: ReadableMap): RollaBranding {
+        // Every field is optional and null keeps the SDK default — never
+        // substitute fallback values here, they would override the SDK's own
+        // palette/copy.
+        return RollaBranding(
+            hostAppName = map.getStringOrNull("hostAppName"),
+            primaryColor = optionalColor(map, "primaryColor"),
+            themeMode = optionalEnum(map, "themeMode", RollaThemeMode.entries) { it.rawValue },
+            headerLogoAsset = map.getStringOrNull("headerLogoAsset"),
+            privacyUrl = map.getStringOrNull("privacyUrl"),
+            removeRollaBandReferences = map.getBooleanOrNull("removeRollaBandReferences"),
+        )
+    }
+
+    fun transition(name: String): RollaTransition = when (name) {
+        "default" -> RollaTransition.DEFAULT
+        "fade" -> RollaTransition.FADE
+        else -> throw IllegalArgumentException("Unknown transition '$name'. Expected 'default' or 'fade'.")
+    }
+
+    private fun <T> optionalEnum(
+        map: ReadableMap,
+        key: String,
+        entries: List<T>,
+        rawValue: (T) -> String
+    ): T? {
+        val name = map.getStringOrNull(key) ?: return null
+        return entries.firstOrNull { rawValue(it) == name }
+            ?: throw IllegalArgumentException("Unknown value '$name' for '$key'.")
+    }
+
+    private fun <T> enumSet(
+        map: ReadableMap,
+        key: String,
+        entries: List<T>,
+        rawValue: (T) -> String
+    ): Set<T> {
+        if (!map.hasKey(key) || map.isNull(key)) return emptySet()
+        val names = map.getArray(key)?.toStringList()
+            ?: throw IllegalArgumentException("'$key' must be an array of strings.")
+        return names.mapTo(LinkedHashSet()) { name ->
+            entries.firstOrNull { rawValue(it) == name }
+                ?: throw IllegalArgumentException("Unknown value '$name' in '$key'.")
+        }
+    }
+
+    private fun optionalColor(map: ReadableMap, key: String): Int? {
+        val hex = map.getStringOrNull(key) ?: return null
+        return parseHexColor(hex)
+            ?: throw IllegalArgumentException("'$key' must be a hex color string ('#RRGGBB' or '#RRGGBBAA').")
+    }
+
+    /**
+     * Parses `#RRGGBB` / `#RRGGBBAA` (CSS channel order, the same contract as
+     * iOS; the `#` is optional) into the ARGB Int the SDK expects. Not
+     * `Color.parseColor`, which reads 8-digit values as `#AARRGGBB`.
+     */
+    private fun parseHexColor(hex: String): Int? {
+        val digits = hex.trim().removePrefix("#")
+        if (digits.length != 6 && digits.length != 8) return null
+        val value = digits.toLongOrNull(16) ?: return null
+        return if (digits.length == 6) {
+            (0xFF000000L or value).toInt()
+        } else {
+            val rgb = (value shr 8) and 0xFFFFFFL
+            val alpha = value and 0xFFL
+            ((alpha shl 24) or rgb).toInt()
+        }
     }
 }
 
@@ -266,10 +334,16 @@ private fun ReadableMap.getStringOrNull(key: String): String? =
 private fun ReadableMap.getIntOrNull(key: String): Int? =
     if (hasKey(key) && !isNull(key)) getInt(key) else null
 
+private fun ReadableMap.getBooleanOrNull(key: String): Boolean? =
+    if (hasKey(key) && !isNull(key)) getBoolean(key) else null
+
+private fun ReadableMap.getMapOrNull(key: String): ReadableMap? =
+    if (hasKey(key) && !isNull(key)) getMap(key) else null
+
 private fun ReadableArray.toStringList(): List<String> {
     val out = ArrayList<String>(size())
     for (i in 0 until size()) {
-        getString(i)?.let { out.add(it) }
+        out.add(getString(i) ?: throw IllegalArgumentException("Expected a string at index $i."))
     }
     return out
 }

@@ -2,6 +2,14 @@ require "json"
 
 package = JSON.parse(File.read(File.join(__dir__, "package.json")))
 
+# Single source of truth for the native SDK pin. `android/build.gradle` reads the
+# same field, and both platforms surface it through `Rolla.getNativeSdkVersion()`,
+# so the reported version can never drift from what is actually linked.
+native_sdk_version = package["nativeSdkVersion"]
+if native_sdk_version.nil? || native_sdk_version.empty?
+  raise "package.json is missing `nativeSdkVersion`"
+end
+
 Pod::Spec.new do |s|
   s.name         = "RollaWrapper"
   s.version      = package["version"]
@@ -21,13 +29,14 @@ Pod::Spec.new do |s|
   s.private_header_files = "ios/**/*.h"
 
   s.pod_target_xcconfig = {
-    "DEFINES_MODULE" => "YES"
+    "DEFINES_MODULE" => "YES",
+    # Stringified in RollaWrapper.mm — the value getNativeSdkVersion() returns.
+    "GCC_PREPROCESSOR_DEFINITIONS" => "$(inherited) ROLLA_NATIVE_SDK_VERSION=#{native_sdk_version}"
   }
 
-  # Exact pin to the native iOS SDK. Bump in lockstep with the compatibility
-  # matrix in README.md. CocoaPods will fail fast if the consumer's Podfile
-  # pins a conflicting RollaSDK version — that is the intended behavior.
-  s.dependency "RollaSDK", "0.1.10"
+  # Exact pin to the native iOS SDK. CocoaPods fails fast if the consumer's
+  # Podfile pins a conflicting RollaSDK version — that is the intended behavior.
+  s.dependency "RollaSDK", native_sdk_version
 
   install_modules_dependencies(s)
 end

@@ -1,6 +1,7 @@
 {
   "name": "@rolla-health/react-native-sdk",
-  "version": "0.1.2",
+  "version": "0.1.15",
+  "nativeSdkVersion": "0.1.15",
   "description": "React Native wrapper for the Rolla SDK",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -36,6 +37,7 @@
     "clean": "del-cli android/build example/android/build example/android/app/build example/ios/build lib",
     "prepare": "bob build",
     "typecheck": "tsc",
+    "test": "jest",
     "lint": "eslint \"**/*.{js,ts,tsx}\""
   },
   "keywords": [
@@ -62,12 +64,14 @@
     "@eslint/js": "^10.0.1",
     "@react-native/babel-preset": "0.80.3",
     "@react-native/eslint-config": "0.85.0",
+    "@types/jest": "^30.0.0",
     "@types/react": "^19.1.0",
     "del-cli": "^7.0.0",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-ft-flow": "^3.0.11",
     "eslint-plugin-prettier": "^5.5.5",
+    "jest": "^30.5.1",
     "prettier": "^3.8.1",
     "react": "19.1.0",
     "react-native": "patch:react-native@npm%3A0.80.3#~/.yarn/patches/react-native-npm-0.80.3-e78d61a7ea.patch",
@@ -107,6 +111,15 @@
     "jsSrcsDir": "src",
     "android": {
       "javaPackageName": "app.rolla.reactnative"
+    }
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "roots": [
+      "<rootDir>/src"
+    ],
+    "globals": {
+      "__DEV__": true
     }
   },
   "prettier": {

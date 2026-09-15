@@ -2122,9 +2122,9 @@ PODS:
     - React-perflogger (= 0.80.3)
     - React-utils (= 0.80.3)
     - SocketRocket
-  - RollaSDK (0.1.10):
+  - RollaSDK (0.1.15):
     - ZIPFoundation (~> 0.9)
-  - RollaWrapper (0.1.0):
+  - RollaWrapper (0.1.15):
     - boost
     - DoubleConversion
     - fast_float
@@ -2151,7 +2151,7 @@ PODS:
     - ReactCodegen
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
-    - RollaSDK (= 0.1.10)
+    - RollaSDK (= 0.1.15)
     - SocketRocket
     - Yoga
   - SocketRocket (0.7.1)
@@ -2399,7 +2399,7 @@ SPEC CHECKSUMS:
   fmt: a40bb5bd0294ea969aaaba240a927bd33d878cdd
   glog: 5683914934d5b6e4240e497e0f4a3b42d1854183
   hermes-engine: fff23161928673afcd95f63146e651726f68b384
-  RCT-Folly: 59ec0ac1f2f39672a0c6e6cecdd39383b764646f
+  RCT-Folly: 846fda9475e61ec7bcbf8a3fe81edfcaeb090669
   RCTDeprecation: 2ebc9cc0329ede460c5d52956ce5e1ab715c2c2c
   RCTRequired: b83daef658afafdc68d85b97ed082f4497a8ffa4
   RCTTypeSafety: 5a01e55bfad2fd196e93d89d22101b25df6fd034
@@ -2463,10 +2463,10 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: cb83a9ee08895e3450a10e05e3e1189f4abed0c3
   ReactCodegen: 6a1673c20ef9c95998d84bffad3bb5327d536079
   ReactCommon: 790f20e973556fcfbdef5fb79f1c50fca7d9e480
-  RollaSDK: 973e90b4442f6d0d0ff8b6b82d81305e298158dc
-  RollaWrapper: 53fe6f64a9ecd83bb214598ef1d14da0699fbbf1
+  RollaSDK: e39acb513dca3130b4fee20a08824d34747abc87
+  RollaWrapper: b1e9ea5c14405ebb55c24f19ec3bd05ddbb4fcc7
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
-  Yoga: eef818857d199e869c806c1176e1eb4c32e1f7b2
+  Yoga: 35ec96a0394eed4631d1eebef1218d250d5b0555
   ZIPFoundation: dfd3d681c4053ff7e2f7350bc4e53b5dba3f5351
 
 PODFILE CHECKSUM: d4f778d0558f459e73323b027c28d7d0b8a0f93b

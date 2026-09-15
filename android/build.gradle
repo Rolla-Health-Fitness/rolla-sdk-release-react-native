@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 // NOTE: this build.gradle is applied as an autolinked subproject of the
 // consumer app. The consumer's root build.gradle is responsible for the
 // `classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:..."` dependency
@@ -14,6 +16,15 @@ apply plugin: "kotlin-android"
 // and our Kotlin module's `extends NativeRollaWrapperSpec` fails to compile.
 apply plugin: "com.facebook.react"
 
+// Single source of truth for the native SDK pin. `RollaWrapper.podspec` reads
+// the same field, and both platforms surface it through
+// `Rolla.getNativeSdkVersion()` (here via BuildConfig), so the reported
+// version can never drift from what is actually linked.
+def packageJson = new JsonSlurper().parse(file("../package.json"))
+def nativeSdkVersion = packageJson.nativeSdkVersion
+if (!(nativeSdkVersion instanceof String) || nativeSdkVersion.isEmpty()) {
+  throw new GradleException("package.json is missing `nativeSdkVersion`")
+}
 
 def getExtOrIntegerDefault(name) {
   return rootProject.ext.has(name) ? rootProject.ext.get(name) : (project.properties["RollaWrapper_" + name]).toInteger()
@@ -45,7 +56,13 @@ android {
     minSdkVersion getExtOrIntegerDefault("minSdkVersion")
     targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
 
+    buildConfigField "String", "NATIVE_SDK_VERSION", "\"${nativeSdkVersion}\""
+
     consumerProguardFiles "consumer-rules.pro"
+  }
+
+  buildFeatures {
+    buildConfig true
   }
 
   buildTypes {
@@ -81,10 +98,10 @@ dependencies {
   // and leaves Kotlin's stdlib off the compile classpath — every stdlib
   // reference like `it`, `apply`, `emptyList` then fails to resolve).
 
-  // Native Android distribution of the Rolla SDK. Exact pin — bump in lockstep
-  // with the compatibility matrix in README.md. Gradle resolves this from the
-  // Maven repository the consumer adds to their settings.gradle (see README).
-  implementation "com.rolla.sdk:android_release:0.1.10"
+  // Native Android distribution of the Rolla SDK, exact-pinned from
+  // package.json. Gradle resolves it from the Maven repository the consumer
+  // adds to their settings.gradle (see README).
+  implementation "com.rolla.sdk:android_release:${nativeSdkVersion}"
 
   coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"
 }

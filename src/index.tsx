@@ -4,8 +4,10 @@ import NativeRollaWrapper from './NativeRollaWrapper';
 import type {
   RollaCloseEvent,
   RollaConfiguration,
+  RollaErrorEvent,
   RollaEventMap,
   RollaEventName,
+  RollaShowOptions,
   RollaSubscription,
 } from './types';
 
@@ -36,20 +38,31 @@ const LISTENER_WARN_THRESHOLD = 8;
  *
  * Two-track API by design:
  *  - `show()` resolves on close, so `await` is ergonomic.
- *  - Events also fire — required for token-refresh signals while the modal is open.
+ *  - Events also fire — required for token-refresh signals while the SDK UI is open.
  *
- * The JS package version is decoupled from the native iOS pod / Android Maven
- * versions. See the compatibility matrix in README.md.
+ * The package version equals the native SDK version it pins (iOS pod
+ * `RollaSDK` and Android `com.rolla.sdk:android_release`) — see README.md.
  */
 export class Rolla {
   private static _emitter: NativeEventEmitter | null = null;
   private static _showResolver: ((value: RollaCloseEvent) => void) | null =
     null;
+  private static _showRejecter: ((reason: Error) => void) | null = null;
   private static _closeSub: { remove(): void } | null = null;
   private static _errorSub: { remove(): void } | null = null;
   private static _userSubs: Set<{ remove(): void }> = new Set();
 
-  static async show(config: RollaConfiguration): Promise<RollaCloseEvent> {
+  /**
+   * Presents the SDK UI. Resolves with the close event once the SDK UI is
+   * dismissed. Rejects with `{ code, message }` when the SDK UI could not be
+   * presented — an invalid configuration (`INVALID_CONFIG`), a second call
+   * while one is pending (`ALREADY_PRESENTING`), or a native start-up failure
+   * reported by the SDK (its `RollaError` code, e.g. `ENGINE_FAILED`).
+   */
+  static async show(
+    config: RollaConfiguration,
+    options?: RollaShowOptions
+  ): Promise<RollaCloseEvent> {
     if (Rolla._showResolver) {
       throw Object.assign(
         new Error(
@@ -61,8 +74,9 @@ export class Rolla {
 
     const emitter = Rolla.getEmitter();
 
-    const result = new Promise<RollaCloseEvent>((resolve) => {
+    const result = new Promise<RollaCloseEvent>((resolve, reject) => {
       Rolla._showResolver = resolve;
+      Rolla._showRejecter = reject;
     });
 
     Rolla._closeSub = emitter.addListener('onClose', ((
@@ -73,20 +87,34 @@ export class Rolla {
       resolver?.(event);
     }) as (...args: readonly Object[]) => unknown);
 
-    Rolla._errorSub = emitter.addListener('onError', (event) => {
+    Rolla._errorSub = emitter.addListener('onError', ((
+      event: RollaErrorEvent
+    ) => {
+      if (event.presentationFailed) {
+        // The SDK never presented, so no onClose will arrive — settle the
+        // pending show() here instead of leaving it hanging forever.
+        const rejecter = Rolla._showRejecter;
+        Rolla.cleanupShowSubs();
+        rejecter?.(
+          Object.assign(new Error(event.message), { code: event.code })
+        );
+        return;
+      }
       if (__DEV__ && Rolla._userSubs.size === 0) {
         console.warn(
           '[RollaWrapper] Native error received but no JS listener attached:',
           event
         );
       }
-    });
+    }) as (...args: readonly Object[]) => unknown);
 
     try {
-      await NativeRollaWrapper.show(config as unknown as Object);
+      await NativeRollaWrapper.show(
+        config as unknown as Object,
+        options?.transition ?? 'default'
+      );
     } catch (err) {
       Rolla.cleanupShowSubs();
-      Rolla._showResolver = null;
       throw err;
     }
 
@@ -121,6 +149,10 @@ export class Rolla {
     return NativeRollaWrapper.isPresenting();
   }
 
+  /**
+   * The native SDK version this package links — equal to the package version
+   * (lockstep). Resolving proves the TurboModule is wired up.
+   */
   static getNativeSdkVersion(): Promise<string> {
     return NativeRollaWrapper.getNativeSdkVersion();
   }
@@ -178,6 +210,7 @@ export class Rolla {
     Rolla._closeSub = null;
     Rolla._errorSub = null;
     Rolla._showResolver = null;
+    Rolla._showRejecter = null;
   }
 }
 

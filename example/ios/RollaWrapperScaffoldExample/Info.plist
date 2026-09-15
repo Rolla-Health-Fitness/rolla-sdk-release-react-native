@@ -31,8 +31,22 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Bluetooth access allows the app to connect to your fitness band and keep syncing health data and activity metrics reliably, even when the app isn't open.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>The app uses Bluetooth to connect to your fitness band and sync health data and activity metrics.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>The app reads your health and fitness data to track your workouts, monitor your activity levels, and provide insights into your fitness progress.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>The app uses your location to accurately track outdoor activities like running and cycling—even when your phone is locked or the app is in the background. Choosing 'Always Allow' ensures complete routes, distance, and pace.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>The app uses your location to track outdoor activities like running and cycling. With 'While Using the App', your route is recorded only when the app is open on screen.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Motion data is used to detect activities and estimate calorie burn.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save your activity images to Photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Access your photo library to select a profile picture.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -46,6 +60,11 @@
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>bluetooth-central</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>

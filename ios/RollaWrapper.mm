@@ -2,10 +2,23 @@
 #import <ReactCommon/RCTTurboModule.h>
 #import <RollaWrapper/RollaWrapper-Swift.h>
 
+// The native SDK pin is injected by RollaWrapper.podspec from package.json's
+// `nativeSdkVersion` (GCC_PREPROCESSOR_DEFINITIONS), so the version this module
+// reports is the version the podspec links — never a second hand-kept literal.
+#ifndef ROLLA_NATIVE_SDK_VERSION
+#error "ROLLA_NATIVE_SDK_VERSION is not defined. RollaWrapper.podspec injects it from package.json `nativeSdkVersion`."
+#endif
+#define ROLLA_STRINGIFY(x) #x
+#define ROLLA_STRINGIFY_EXPAND(x) ROLLA_STRINGIFY(x)
+static NSString *const kNativeSdkVersion = @ROLLA_STRINGIFY_EXPAND(ROLLA_NATIVE_SDK_VERSION);
+
 static NSString *const kEventClose          = @"onClose";
 static NSString *const kEventError          = @"onError";
 static NSString *const kEventTokenRefreshed = @"onTokenRefreshed";
 static NSString *const kEventTokenExpired   = @"onTokenExpired";
+
+// Matches RollaBridgeError.codeUserInfoKey on the Swift side.
+static NSString *const kBridgeErrorCodeKey  = @"code";
 
 @interface RollaWrapper () <RollaBridgeListener>
 @property (nonatomic, strong) RollaBridge *rollaBridge;
@@ -84,70 +97,31 @@ RCT_EXPORT_MODULE()
 #pragma mark - NativeRollaWrapperSpec
 
 - (void)show:(NSDictionary *)config
+  transition:(NSString *)transition
      resolve:(RCTPromiseResolveBlock)resolve
       reject:(RCTPromiseRejectBlock)reject
 {
   dispatch_async(dispatch_get_main_queue(), ^{
-    NSString *token = config[@"token"];
-    if (![token isKindOfClass:[NSString class]] || token.length == 0) {
-      reject(@"INVALID_CONFIG", @"Missing required field 'token'.", nil);
-      return;
-    }
-    NSString *partnerId = config[@"partnerId"];
-    if (![partnerId isKindOfClass:[NSString class]] || partnerId.length == 0) {
-      reject(@"INVALID_CONFIG", @"Missing required field 'partnerId'.", nil);
-      return;
-    }
-
-    if (self.rollaBridge.isPresenting) {
-      reject(@"ALREADY_PRESENTING",
-             @"Rolla is already presenting. Dismiss it before calling show() again.",
-             nil);
-      return;
-    }
-
     UIViewController *presenter = [self topPresentedViewController];
     if (presenter == nil) {
       reject(@"NO_PRESENTER", @"Unable to find a view controller to present from.", nil);
       return;
     }
 
-    NSString *environment = config[@"environment"] ?: @"rnd";
-    NSArray<NSString *> *modules = config[@"disabledModules"];
-    if (![modules isKindOfClass:[NSArray class]]) {
-      modules = config[@"modules"];
-      if (![modules isKindOfClass:[NSArray class]]) modules = nil;
+    // Configuration parsing and the already-presenting guard live in Swift;
+    // both surface here as an NSError carrying the JS rejection code.
+    NSError *error = nil;
+    BOOL started = [self.rollaBridge showWithConfig:config
+                                         transition:transition ?: @"default"
+                                          presenter:presenter
+                                              error:&error];
+    if (!started) {
+      NSString *code = error.userInfo[kBridgeErrorCodeKey] ?: @"SHOW_FAILED";
+      NSString *message = error.localizedDescription ?: @"Failed to launch Rolla.";
+      reject(code, message, error);
+      return;
     }
-    NSNumber *expiresIn = config[@"tokenExpiresIn"];
-    if (![expiresIn isKindOfClass:[NSNumber class]]) expiresIn = nil;
-
-    NSString *refresh = config[@"refreshToken"];
-    if (![refresh isKindOfClass:[NSString class]]) refresh = nil;
-    NSString *userId = config[@"userId"];
-    if (![userId isKindOfClass:[NSString class]]) userId = nil;
-
-    NSDictionary *branding = config[@"branding"];
-    if (![branding isKindOfClass:[NSDictionary class]]) branding = nil;
-
-    NSNumber *showSettings = config[@"showSettingsButton"];
-    BOOL showSettingsBool = (showSettings != nil && [showSettings isKindOfClass:[NSNumber class]])
-        ? [showSettings boolValue] : YES;
-
-    NSString *err = [self.rollaBridge showWithToken:token
-                                  refreshToken:refresh
-                                tokenExpiresIn:expiresIn
-                                        userId:userId
-                                     partnerId:partnerId
-                                   environment:environment
-                                       modules:modules
-                                      branding:branding
-                            showSettingsButton:showSettingsBool
-                                     presenter:presenter];
-    if (err != nil) {
-      reject(@"SHOW_FAILED", err, nil);
-    } else {
-      resolve(nil);
-    }
+    resolve(nil);
   });
 }
 
@@ -214,7 +188,7 @@ RCT_EXPORT_MODULE()
 - (void)getNativeSdkVersion:(RCTPromiseResolveBlock)resolve
                      reject:(RCTPromiseRejectBlock)reject
 {
-  resolve([RollaBridge nativeSdkVersion]);
+  resolve(kNativeSdkVersion);
 }
 
 // `RCTEventEmitter` provides `addListener:` and `removeListeners:` matching
@@ -229,9 +203,14 @@ RCT_EXPORT_MODULE()
   [self sendEventWithName:kEventClose body:payload];
 }
 
-- (void)rollaBridgeDidFailWithCode:(NSString *)code message:(NSString *)message {
+- (void)rollaBridgeDidFailWithCode:(NSString *)code
+                           message:(NSString *)message
+                presentationFailed:(BOOL)presentationFailed {
   if (!self.hasListeners) return;
-  [self sendEventWithName:kEventError body:@{ @"code": code, @"message": message }];
+  [self sendEventWithName:kEventError
+                     body:@{ @"code": code,
+                             @"message": message,
+                             @"presentationFailed": @(presentationFailed) }];
 }
 
 - (void)rollaBridgeDidRefreshTokenWithToken:(NSString *)token

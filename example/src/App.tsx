@@ -1,30 +1,49 @@
 import { useEffect, useState } from 'react';
 import { Text, View, StyleSheet, Pressable } from 'react-native';
 import { Rolla } from '@rolla-health/react-native-sdk';
+import sdkPackage from '../../package.json';
 
+// Maintainer smoke harness: proves the TurboModule is wired and that the
+// native side reports the pin declared in package.json. Not a partner sample —
+// see rolla-sdk-demo-react-native for that.
 export default function App() {
   const [version, setVersion] = useState<string>('(loading…)');
   const [showStatus, setShowStatus] = useState<string>('idle');
 
   useEffect(() => {
     Rolla.getNativeSdkVersion()
-      .then((v) => setVersion(v))
+      .then((v) => {
+        // Also logged so a device console proves the wiring without a screen.
+        console.log(`[RollaWrapperExample] native SDK version ${v}`);
+        setVersion(v);
+      })
       .catch((e) => setVersion(`ERROR: ${e?.message ?? e}`));
   }, []);
 
   const onPress = async () => {
     try {
       setShowStatus('calling show()…');
-      const closed = await Rolla.show({
-        token: 'bogus-test-token',
-        partnerId: 'demo',
-        environment: 'rnd',
-      });
+      const closed = await Rolla.show(
+        {
+          token: 'bogus-test-token',
+          partnerId: 'demo',
+          environment: 'rnd',
+          disabledModules: ['leaderboards'],
+          branding: {
+            hostAppName: 'Wrapper Example',
+            primaryColor: '#0f7a3a',
+            themeMode: 'system',
+          },
+        },
+        { transition: 'fade' }
+      );
       setShowStatus(`closed: ${closed.reason}`);
     } catch (e: any) {
       setShowStatus(`reject: ${e?.code ?? '?'} — ${e?.message ?? e}`);
     }
   };
+
+  const pinMatches = version === sdkPackage.nativeSdkVersion;
 
   return (
     <View style={styles.container}>
@@ -35,7 +54,9 @@ export default function App() {
       </Pressable>
       <Text style={styles.status}>{showStatus}</Text>
       <Text style={styles.ok}>
-        {version === '0.1.10' ? '✅ TURBO MODULE OK' : '⏳ awaiting native…'}
+        {pinMatches
+          ? `✅ TURBO MODULE OK (pin ${sdkPackage.nativeSdkVersion})`
+          : '⏳ awaiting native…'}
       </Text>
     </View>
   );

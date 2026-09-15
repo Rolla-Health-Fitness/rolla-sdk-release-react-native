@@ -12,7 +12,8 @@ import { TurboModuleRegistry, type TurboModule } from 'react-native';
  * exist on the TurboModule.
  */
 export interface Spec extends TurboModule {
-  show(config: Object): Promise<void>;
+  /** `transition` is a `RollaTransition` name; JS always passes one. */
+  show(config: Object, transition: string): Promise<void>;
   dismiss(): Promise<void>;
   updateToken(
     token: string,

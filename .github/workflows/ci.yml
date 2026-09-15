@@ -9,6 +9,9 @@ on:
   merge_group:
     types:
       - checks_requested
+  # Reused by release.yml so a release is verified by the exact jobs that
+  # gate every PR.
+  workflow_call:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

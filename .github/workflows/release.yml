@@ -1,78 +1,179 @@
 name: Release
 
+# Publishes @rolla-health/react-native-sdk to npm and creates the GitHub
+# Release for a `vX.Y.Z` tag. The package version equals the native SDK
+# version it pins (lockstep), so a tag is only pushed after the matching
+# native SDK release exists in the artifact repos.
+#
+# Auth: npm trusted publishing (OIDC). No token is stored anywhere — the
+# `id-token: write` permission lets npm ≥ 11.5.1 exchange the GitHub Actions
+# identity for a short-lived publish credential, and provenance is attached
+# automatically. The trusted publisher on npmjs.com is bound to this
+# repository and this workflow file name.
+#
+# `workflow_dispatch` runs the whole pipeline with `npm publish --dry-run`
+# (default) so a workflow change can be rehearsed without a tag.
+
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run npm publish with --dry-run (nothing is uploaded)'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
   id-token: write
 
 jobs:
-  release:
-    runs-on: macos-latest
+  verify:
+    name: Verify version and pins
+    runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.meta.outputs.package }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
-      - name: Setup
-        uses: ./.github/actions/setup
+      - name: Read package metadata
+        id: meta
+        run: |
+          echo "package=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "native=$(node -p "require('./package.json').nativeSdkVersion ?? ''")" >> "$GITHUB_OUTPUT"
 
       - name: Verify tag matches package.json version
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)" >&2
+          if [ "$VERSION" != "$TAG_VERSION" ]; then
+            echo "package.json version ($VERSION) does not match tag ($TAG_VERSION)" >&2
             exit 1
           fi
 
-      - name: Typecheck
-        run: yarn typecheck
+      - name: Refuse test-channel pins
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          NATIVE: ${{ steps.meta.outputs.native }}
+        run: |
+          # Test builds (X.Y.Z-test.N) live in throwaway artifact repos that are
+          # garbage-collected weekly. npm is permanent, so a package pinning one
+          # would break for every consumer within days. Test pins are consumed
+          # from a branch via `yarn use:local`, never published.
+          if [ -z "$NATIVE" ]; then
+            echo "package.json is missing nativeSdkVersion" >&2
+            exit 1
+          fi
+          for value in "$VERSION" "$NATIVE"; do
+            case "$value" in
+              *-test.*)
+                echo "Refusing to publish a test-channel pin: $value" >&2
+                exit 1
+                ;;
+            esac
+          done
+          echo "Publishing $VERSION (native SDK $NATIVE)"
 
-      - name: Build package (bob)
+  # The same lint / typecheck / library / Android / iOS jobs that gate every
+  # PR, so a release is verified exactly the way `dev` is — including the
+  # example iOS build under the mandatory static `use_frameworks!`, which
+  # `pod lib lint --use-libraries` never exercised.
+  ci:
+    name: Build and test
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish to npm
+    needs: [verify, ci]
+    runs-on: ubuntu-latest
+    env:
+      PACKAGE: ${{ needs.verify.outputs.package }}
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      # `registry-url` writes the .npmrc npm needs; with no token in the
+      # environment, npm falls back to the OIDC exchange.
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify npm supports trusted publishing
+        run: |
+          node -e '
+            const [major, minor, patch] = require("child_process")
+              .execSync("npm --version").toString().trim().split(".").map(Number);
+            const ok = major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1)));
+            if (!ok) {
+              console.error(`npm ${major}.${minor}.${patch} predates trusted publishing (needs >= 11.5.1)`);
+              process.exit(1);
+            }
+            console.log(`npm ${major}.${minor}.${patch}`);
+          '
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build package
         run: yarn prepare
 
-      - name: Install JDK
-        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Finalize Android SDK
-        run: |
-          /bin/bash -c "yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null"
-
-      - name: Android Gradle smoke build (--refresh-dependencies)
+      - name: Publish
         env:
-          JAVA_OPTS: '-XX:MaxHeapSize=6g'
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
-          cd example/android
-          ./gradlew assembleDebug --refresh-dependencies --no-daemon
+          # Idempotent: a re-run after a failure downstream (e.g. the GitHub
+          # Release step) must not fail on "version already exists".
+          published="$(npm view "$PACKAGE@$VERSION" version 2>/dev/null || true)"
+          if [ "$published" = "$VERSION" ]; then
+            echo "$PACKAGE@$VERSION is already on npm — skipping publish"
+            exit 0
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            npm publish --access public --dry-run
+          else
+            npm publish --access public
+          fi
 
-      - name: CocoaPods lint
+      # The vendored CHANGELOG.md is a synced copy of the SDK changelog; the
+      # release body is its `## X.Y.Z` section. When a version has no section
+      # (a React-Native-only patch), GitHub's generated notes are used instead.
+      - name: Extract release notes
+        id: notes
+        if: github.event_name == 'push'
         run: |
-          pod lib lint RollaWrapper.podspec \
-            --sources='https://github.com/Rolla-Health-Fitness/rolla-sdk-release-ios.git,https://cdn.cocoapods.org/' \
-            --use-libraries \
-            --allow-warnings \
-            --skip-tests
+          found=false
+          if [ -f CHANGELOG.md ]; then
+            awk -v ver="$VERSION" '
+              /^## / { if (found) exit; if ($0 == "## " ver) { found = 1; next } }
+              found { print }
+            ' CHANGELOG.md > release-notes.md
+            if [ -s release-notes.md ]; then found=true; fi
+          fi
+          echo "found=$found" >> "$GITHUB_OUTPUT"
 
-      - name: Configure npm auth
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create GitHub Release
+      - name: Create GitHub Release from CHANGELOG
+        if: github.event_name == 'push' && steps.notes.outputs.found == 'true'
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          generate_release_notes: true
           name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
+          body_path: release-notes.md
+
+      - name: Create GitHub Release with generated notes
+        if: github.event_name == 'push' && steps.notes.outputs.found != 'true'
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true

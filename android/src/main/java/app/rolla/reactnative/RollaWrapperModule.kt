@@ -1,5 +1,8 @@
 package app.rolla.reactnative
 
+import android.app.Activity
+import android.content.Intent
+import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
@@ -7,6 +10,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.UiThreadUtil
+import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.rolla.sdk.wrapper.Rolla
@@ -18,16 +22,58 @@ import com.rolla.sdk.wrapper.config.RollaDisabledModule
 import com.rolla.sdk.wrapper.config.RollaLanguage
 import com.rolla.sdk.wrapper.config.RollaThemeMode
 import com.rolla.sdk.wrapper.config.RollaTransition
+import com.rolla.sdk.wrapper.features.activity.RollaCompletedActivity
+import com.rolla.sdk.wrapper.features.activity.RollaRemovedActivity
+import com.rolla.sdk.wrapper.features.activity.RollaStartedActivity
+import com.rolla.sdk.wrapper.features.band.RollaBandInfo
+import com.rolla.sdk.wrapper.features.band.RollaBatteryResult
+import com.rolla.sdk.wrapper.features.band.RollaPairedBandResult
+import com.rolla.sdk.wrapper.features.goals.RollaGoalInfo
+import com.rolla.sdk.wrapper.features.goals.RollaGoalsChanged
+import com.rolla.sdk.wrapper.features.navigation.RollaScreen
+import com.rolla.sdk.wrapper.features.notifications.RollaNotificationTarget
+import com.rolla.sdk.wrapper.features.profile.RollaProfileUpdated
 import com.rolla.sdk.wrapper.features.session.RollaCloseReason
 import com.rolla.sdk.wrapper.features.session.RollaError
+import com.rolla.sdk.wrapper.features.sync.RollaPrimarySourceChanged
+import com.rolla.sdk.wrapper.features.sync.RollaSyncResult
+import com.rolla.sdk.wrapper.features.sync.RollaSyncedHealthData
+import com.rolla.sdk.wrapper.features.sync.RollaSyncedSamples
+import com.rolla.sdk.wrapper.features.sync.RollaSyncedStreamSummary
+import java.time.format.DateTimeFormatter
+import java.util.Date
 
+/**
+ * React Native TurboModule over the Rolla Android SDK.
+ *
+ * Every entry point builds a `Rolla` instance from the configuration it is
+ * given — the way a native host calls the SDK — and wires this module as its
+ * listener. The SDK delivers events for the engine's lifetime to the last
+ * listener wired, so events keep flowing after the SDK UI closes.
+ */
 class RollaWrapperModule(reactContext: ReactApplicationContext) :
-    NativeRollaWrapperSpec(reactContext), LifecycleEventListener {
+    NativeRollaWrapperSpec(reactContext), LifecycleEventListener, ActivityEventListener {
 
+    /**
+     * The most recently created instance — the target of `dismiss`,
+     * `updateToken` and `clearSession`, exactly like a native host that keeps
+     * its latest `Rolla`.
+     */
     private var rolla: Rolla? = null
+
+    /**
+     * JS subscriptions currently attached through `NativeEventEmitter`, which
+     * calls [addListener] / [removeListeners] on this module. A notification
+     * tap that arrives while nothing listens is queued for
+     * `getInitialNotificationTarget()` instead of being dropped.
+     */
+    private var listenerCount = 0
+
+    private var pendingNotificationTarget: WritableMap? = null
 
     init {
         reactContext.addLifecycleEventListener(this)
+        reactContext.addActivityEventListener(this)
     }
 
     override fun getName(): String = NAME
@@ -50,6 +96,8 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         super.invalidate()
     }
 
+    // region Presentation
+
     override fun show(config: ReadableMap, transition: String, promise: Promise) {
         val activity = reactApplicationContext.currentActivity
             ?: return promise.reject("NO_ACTIVITY", "RollaWrapper.show requires a foreground activity.")
@@ -65,11 +113,8 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
                     return@runOnUiThread
                 }
 
-                val configuration = RollaConfigurationParser.configuration(config)
                 val rollaTransition = RollaConfigurationParser.transition(transition)
-                val instance = Rolla(configuration)
-                instance.listener = RollaListenerAdapter()
-                rolla = instance
+                val instance = makeInstance(config)
                 instance.show(activity, rollaTransition)
                 promise.resolve(null)
             } catch (e: IllegalArgumentException) {
@@ -144,12 +189,148 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         promise.resolve(BuildConfig.NATIVE_SDK_VERSION)
     }
 
+    // endregion
+
+    // region Headless
+
+    override fun warmUpEngine(config: ReadableMap, promise: Promise) {
+        UiThreadUtil.runOnUiThread {
+            val instance = makeInstanceOrReject(config, promise) ?: return@runOnUiThread
+            instance.warmUpEngine(reactApplicationContext) { result ->
+                result.onSuccess { promise.resolve(null) }
+                    .onFailure { promise.rejectSdk(it) }
+            }
+        }
+    }
+
+    override fun syncHealthData(config: ReadableMap, includeSamples: Boolean, promise: Promise) {
+        UiThreadUtil.runOnUiThread {
+            val instance = makeInstanceOrReject(config, promise) ?: return@runOnUiThread
+            instance.syncHealthData(reactApplicationContext, includeSamples) { result ->
+                result.onSuccess { promise.resolve(RollaPayloadEncoder.encode(it)) }
+                    .onFailure { promise.rejectSdk(it) }
+            }
+        }
+    }
+
+    override fun getBandBatteryLevel(config: ReadableMap, promise: Promise) {
+        UiThreadUtil.runOnUiThread {
+            val instance = makeInstanceOrReject(config, promise) ?: return@runOnUiThread
+            instance.getBandBatteryLevel(reactApplicationContext) { result ->
+                result.onSuccess { promise.resolve(RollaPayloadEncoder.encode(it)) }
+                    .onFailure { promise.rejectSdk(it) }
+            }
+        }
+    }
+
+    override fun getPairedBandInfo(config: ReadableMap, promise: Promise) {
+        UiThreadUtil.runOnUiThread {
+            val instance = makeInstanceOrReject(config, promise) ?: return@runOnUiThread
+            instance.getPairedBandInfo(reactApplicationContext) { result ->
+                result.onSuccess { promise.resolve(RollaPayloadEncoder.encode(it)) }
+                    .onFailure { promise.rejectSdk(it) }
+            }
+        }
+    }
+
+    // endregion
+
+    // region Navigation and notifications
+
+    override fun openScreen(config: ReadableMap, screen: String, transition: String, promise: Promise) {
+        val activity = reactApplicationContext.currentActivity
+            ?: return promise.reject("NO_ACTIVITY", "RollaWrapper.openScreen requires a foreground activity.")
+
+        UiThreadUtil.runOnUiThread {
+            val rollaScreen = RollaScreen.entries.firstOrNull { it.rawValue == screen }
+            if (rollaScreen == null) {
+                promise.reject("INVALID_CONFIG", "Unknown screen '$screen'.")
+                return@runOnUiThread
+            }
+            val rollaTransition = try {
+                RollaConfigurationParser.transition(transition)
+            } catch (e: IllegalArgumentException) {
+                promise.reject("INVALID_CONFIG", e.message ?: "Invalid transition.", e)
+                return@runOnUiThread
+            }
+            val instance = makeInstanceOrReject(config, promise) ?: return@runOnUiThread
+            instance.openScreen(activity, rollaScreen, rollaTransition) { status ->
+                promise.resolve(status.rawValue)
+            }
+        }
+    }
+
+    /**
+     * The queued tap first, otherwise the tap that launched the current
+     * activity; both are consumed on read so a later call (a re-login, a JS
+     * reload) does not replay the same tap.
+     */
+    override fun getInitialNotificationTarget(promise: Promise) {
+        val pending = pendingNotificationTarget
+        if (pending != null) {
+            pendingNotificationTarget = null
+            promise.resolve(pending)
+            return
+        }
+        val intent = reactApplicationContext.currentActivity?.intent
+        val target = intent?.let { Rolla.notificationTarget(it) }
+        if (target != null) {
+            intent.removeExtra(NOTIFICATION_PAYLOAD_EXTRA)
+        }
+        promise.resolve(RollaPayloadEncoder.encode(target))
+    }
+
+    override fun notificationTarget(payload: ReadableMap, promise: Promise) {
+        val intent = Intent()
+        payload.getStringOrNull(NOTIFICATION_PAYLOAD_EXTRA)?.let { intent.putExtra(NOTIFICATION_PAYLOAD_EXTRA, it) }
+        promise.resolve(RollaPayloadEncoder.encode(Rolla.notificationTarget(intent)))
+    }
+
+    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {}
+
+    /** A notification tap while the app is running re-delivers the launch intent here. */
+    override fun onNewIntent(intent: Intent) {
+        val target = Rolla.notificationTarget(intent) ?: return
+        val payload = RollaPayloadEncoder.encode(target)
+        if (listenerCount > 0) {
+            emit("onNotificationTap", payload)
+        } else {
+            pendingNotificationTarget = payload
+        }
+    }
+
+    // endregion
+
     override fun addListener(eventName: String) {
-        // no-op, required by RN 0.65+ NativeEventEmitter
+        listenerCount += 1
     }
 
     override fun removeListeners(count: Double) {
-        // no-op, required by RN 0.65+ NativeEventEmitter
+        listenerCount = maxOf(0, listenerCount - count.toInt())
+    }
+
+    /**
+     * Builds a `Rolla` from the JS configuration, wires this module as its
+     * listener and remembers it as the current instance.
+     */
+    private fun makeInstance(config: ReadableMap): Rolla {
+        val instance = Rolla(RollaConfigurationParser.configuration(config))
+        instance.listener = RollaListenerAdapter()
+        rolla = instance
+        return instance
+    }
+
+    private fun makeInstanceOrReject(config: ReadableMap, promise: Promise): Rolla? = try {
+        makeInstance(config)
+    } catch (e: IllegalArgumentException) {
+        promise.reject("INVALID_CONFIG", e.message ?: "Invalid Rolla configuration.", e)
+        null
+    }
+
+    /** Rejects with the SDK's own error code; anything else is `UNKNOWN`. */
+    private fun Promise.rejectSdk(error: Throwable) {
+        val code = (error as? RollaError)?.code ?: "UNKNOWN"
+        reject(code, error.message ?: "An unknown error occurred.", error)
     }
 
     private fun emit(event: String, payload: WritableMap?) {
@@ -161,7 +342,9 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
     private inner class RollaListenerAdapter : RollaListener {
 
         override fun onRollaClosed(rolla: Rolla, reason: RollaCloseReason) {
-            this@RollaWrapperModule.rolla = null
+            if (this@RollaWrapperModule.rolla === rolla) {
+                this@RollaWrapperModule.rolla = null
+            }
             emit("onClose", encodeReason(reason))
         }
 
@@ -200,6 +383,54 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         override fun onTokenExpired(rolla: Rolla) {
             emit("onTokenExpired", Arguments.createMap())
         }
+
+        override fun onSyncHealthDataCompleted(rolla: Rolla, result: RollaSyncResult) {
+            emit("onSyncHealthDataCompleted", RollaPayloadEncoder.encode(result))
+        }
+
+        override fun onUiSyncCompleted(rolla: Rolla, result: RollaSyncResult) {
+            emit("onUiSyncCompleted", RollaPayloadEncoder.encode(result))
+        }
+
+        override fun onActivityCompleted(rolla: Rolla, activity: RollaCompletedActivity) {
+            emit("onActivityCompleted", RollaPayloadEncoder.encode(activity))
+        }
+
+        override fun onActivityStarted(rolla: Rolla, activity: RollaStartedActivity) {
+            emit("onActivityStarted", RollaPayloadEncoder.encode(activity))
+        }
+
+        override fun onActivityRemoved(rolla: Rolla, activity: RollaRemovedActivity) {
+            emit("onActivityRemoved", RollaPayloadEncoder.encode(activity))
+        }
+
+        override fun onBandPaired(rolla: Rolla, band: RollaBandInfo) {
+            emit("onBandPaired", RollaPayloadEncoder.encode(band))
+        }
+
+        override fun onBandUnpaired(rolla: Rolla, band: RollaBandInfo) {
+            emit("onBandUnpaired", RollaPayloadEncoder.encode(band))
+        }
+
+        override fun onBandConnected(rolla: Rolla, band: RollaBandInfo) {
+            emit("onBandConnected", RollaPayloadEncoder.encode(band))
+        }
+
+        override fun onBandDisconnected(rolla: Rolla, band: RollaBandInfo) {
+            emit("onBandDisconnected", RollaPayloadEncoder.encode(band))
+        }
+
+        override fun onPrimarySourceChanged(rolla: Rolla, change: RollaPrimarySourceChanged) {
+            emit("onPrimarySourceChanged", RollaPayloadEncoder.encode(change))
+        }
+
+        override fun onGoalsChanged(rolla: Rolla, change: RollaGoalsChanged) {
+            emit("onGoalsChanged", RollaPayloadEncoder.encode(change))
+        }
+
+        override fun onProfileUpdated(rolla: Rolla, update: RollaProfileUpdated) {
+            emit("onProfileUpdated", RollaPayloadEncoder.encode(update))
+        }
     }
 
     private fun encodeReason(reason: RollaCloseReason): WritableMap {
@@ -221,6 +452,203 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
 
     companion object {
         const val NAME = "RollaWrapper"
+
+        /** The intent extra the SDK's notification taps carry (`RollaNotificationTarget.PAYLOAD_EXTRA`). */
+        private const val NOTIFICATION_PAYLOAD_EXTRA = "payload"
+    }
+}
+
+/**
+ * Encodes the SDK's typed payloads as JS-friendly maps. Dates become ISO-8601
+ * strings; sample timestamps stay epoch milliseconds, as the SDK delivers
+ * them; null fields are omitted.
+ */
+private object RollaPayloadEncoder {
+
+    fun encode(result: RollaSyncResult): WritableMap = Arguments.createMap().apply {
+        putString("outcome", result.outcome.rawValue)
+        putBoolean("hasNewData", result.hasNewData)
+        putString("source", result.source.rawValue)
+        result.startedAt?.let { putString("startedAt", iso(it)) }
+        result.lastSyncAt?.let { putString("lastSyncAt", iso(it)) }
+        result.skipReason?.let { putString("skipReason", it.rawValue) }
+        result.error?.let { putString("error", it) }
+        result.syncedData?.let { putMap("syncedData", encode(it)) }
+    }
+
+    fun encode(data: RollaSyncedHealthData): WritableMap = Arguments.createMap().apply {
+        putString("source", data.source.rawValue)
+        putArray("syncedDates", Arguments.createArray().apply { data.syncedDates.forEach(::pushString) })
+        data.batteryLevel?.let { putInt("batteryLevel", it) }
+        data.heartRate?.let { putMap("heartRate", encode(it)) }
+        data.hrv?.let { putMap("hrv", encode(it)) }
+        data.steps?.let { putMap("steps", encode(it)) }
+        data.sleep?.let { putMap("sleep", encode(it)) }
+        data.weight?.let { putMap("weight", encode(it)) }
+        data.bloodPressure?.let { putMap("bloodPressure", encode(it)) }
+        data.workouts?.let { putMap("workouts", encode(it)) }
+        data.samples?.let { putMap("samples", encode(it)) }
+    }
+
+    fun encode(summary: RollaSyncedStreamSummary): WritableMap = Arguments.createMap().apply {
+        putInt("count", summary.count)
+        summary.from?.let { putDouble("from", it.toDouble()) }
+        summary.to?.let { putDouble("to", it.toDouble()) }
+        summary.total?.let { putInt("total", it) }
+        summary.blocks?.let { putInt("blocks", it) }
+        summary.minutes?.let { putInt("minutes", it) }
+    }
+
+    fun encode(samples: RollaSyncedSamples): WritableMap = Arguments.createMap().apply {
+        putArray("heartRate", samples.heartRate.toArray {
+            putDouble("timestamp", it.timestamp.toDouble()); putInt("hr", it.hr)
+        })
+        putArray("hrv", samples.hrv.toArray {
+            putDouble("timestamp", it.timestamp.toDouble()); putInt("hrv", it.hrv)
+        })
+        putArray("steps", samples.steps.toArray {
+            putDouble("timestamp", it.timestamp.toDouble())
+            putDouble("stepsDelta", it.stepsDelta)
+            putDouble("caloriesDelta", it.caloriesDelta)
+        })
+        putArray("sleep", samples.sleep.toArray {
+            putDouble("startTime", it.startTime.toDouble())
+            putDouble("endTime", it.endTime.toDouble())
+            putString("stage", it.stage)
+        })
+        putArray("weight", samples.weight.toArray {
+            putDouble("timestamp", it.timestamp.toDouble()); putDouble("weight", it.weight)
+        })
+        putArray("bloodPressure", samples.bloodPressure.toArray {
+            putDouble("timestamp", it.timestamp.toDouble())
+            putInt("systolic", it.systolic)
+            putInt("diastolic", it.diastolic)
+        })
+    }
+
+    fun encode(activity: RollaCompletedActivity): WritableMap = Arguments.createMap().apply {
+        putString("activityId", activity.activityId)
+        putString("phase", activity.phase.rawValue)
+        putString("source", activity.source.rawValue)
+        activity.catalogId?.let { putString("catalogId", it) }
+        activity.type?.let { putString("type", it) }
+        activity.environment?.let { putString("environment", it) }
+        activity.category?.let { putString("category", it) }
+        activity.totalDurationS?.let { putInt("totalDurationS", it) }
+        activity.totalDistanceM?.let { putDouble("totalDistanceM", it) }
+        activity.totalCalories?.let { putDouble("totalCalories", it) }
+        activity.startTime?.let { putString("startTime", iso(it)) }
+        activity.endTime?.let { putString("endTime", iso(it)) }
+    }
+
+    fun encode(activity: RollaStartedActivity): WritableMap = Arguments.createMap().apply {
+        putString("activityId", activity.activityId)
+        putString("origin", activity.origin.rawValue)
+        activity.type?.let { putString("type", it) }
+        activity.startTime?.let { putString("startTime", iso(it)) }
+        activity.catalogId?.let { putString("catalogId", it) }
+    }
+
+    fun encode(activity: RollaRemovedActivity): WritableMap = Arguments.createMap().apply {
+        putString("activityId", activity.activityId)
+        putString("reason", activity.reason.rawValue)
+    }
+
+    fun encode(band: RollaBandInfo): WritableMap = Arguments.createMap().apply {
+        putString("macAddress", band.macAddress)
+        band.name?.let { putString("name", it) }
+        band.rssi?.let { putInt("rssi", it) }
+        band.deviceType?.let { putString("deviceType", it) }
+        band.batteryPercent?.let { putInt("batteryPercent", it) }
+        band.firmwareVersion?.let { putString("firmwareVersion", it) }
+        band.serialNumber?.let { putString("serialNumber", it) }
+    }
+
+    fun encode(battery: RollaBatteryResult): WritableMap = Arguments.createMap().apply {
+        putString("status", battery.status.rawValue)
+        battery.level?.let { putInt("level", it) }
+    }
+
+    fun encode(paired: RollaPairedBandResult): WritableMap = Arguments.createMap().apply {
+        putString("status", paired.status.rawValue)
+        paired.band?.let { putMap("band", encode(it)) }
+    }
+
+    fun encode(change: RollaPrimarySourceChanged): WritableMap = Arguments.createMap().apply {
+        putString("previousSource", change.previousSource.rawValue)
+        putString("currentSource", change.currentSource.rawValue)
+    }
+
+    fun encode(change: RollaGoalsChanged): WritableMap = Arguments.createMap().apply {
+        putArray("changedGoals", change.changedGoals.toArray { encodeGoal(it) })
+        putArray("enabledGoals", change.enabledGoals.toArray { encodeGoal(it) })
+    }
+
+    private fun WritableMap.encodeGoal(goal: RollaGoalInfo) {
+        putInt("id", goal.id)
+        putString("name", goal.name)
+        putBoolean("enabled", goal.enabled)
+    }
+
+    fun encode(update: RollaProfileUpdated): WritableMap = Arguments.createMap().apply {
+        // The SDK hands over Flutter-codec values (numbers, strings, lists,
+        // maps, null); anything else is passed on as its string form.
+        putMap("changedFields", Arguments.createMap().also { fields ->
+            update.changedFields.forEach { (key, value) -> fields.putAny(key, value) }
+        })
+    }
+
+    /** `{ kind: "none" }` when the notification is not one of Rolla's. */
+    fun encode(target: RollaNotificationTarget?): WritableMap = Arguments.createMap().apply {
+        when (target) {
+            null -> putString("kind", "none")
+            RollaNotificationTarget.AppSettings -> putString("kind", "appSettings")
+            is RollaNotificationTarget.Screen -> {
+                putString("kind", "screen")
+                putString("screen", target.screen.rawValue)
+            }
+        }
+    }
+
+    private fun iso(date: Date): String = DateTimeFormatter.ISO_INSTANT.format(date.toInstant())
+
+    private fun <T> List<T>.toArray(fill: WritableMap.(T) -> Unit): WritableArray =
+        Arguments.createArray().also { array ->
+            forEach { item -> array.pushMap(Arguments.createMap().apply { fill(item) }) }
+        }
+
+    private fun WritableMap.putAny(key: String, value: Any?) {
+        when (value) {
+            null -> putNull(key)
+            is Boolean -> putBoolean(key, value)
+            is Int -> putInt(key, value)
+            is Number -> putDouble(key, value.toDouble())
+            is String -> putString(key, value)
+            is Map<*, *> -> putMap(key, Arguments.createMap().also { nested ->
+                value.forEach { (k, v) -> nested.putAny(k.toString(), v) }
+            })
+            is Iterable<*> -> putArray(key, Arguments.createArray().also { array ->
+                value.forEach { array.pushAny(it) }
+            })
+            else -> putString(key, value.toString())
+        }
+    }
+
+    private fun WritableArray.pushAny(value: Any?) {
+        when (value) {
+            null -> pushNull()
+            is Boolean -> pushBoolean(value)
+            is Int -> pushInt(value)
+            is Number -> pushDouble(value.toDouble())
+            is String -> pushString(value)
+            is Map<*, *> -> pushMap(Arguments.createMap().also { nested ->
+                value.forEach { (k, v) -> nested.putAny(k.toString(), v) }
+            })
+            is Iterable<*> -> pushArray(Arguments.createArray().also { array ->
+                value.forEach { array.pushAny(it) }
+            })
+            else -> pushString(value.toString())
+        }
     }
 }
 

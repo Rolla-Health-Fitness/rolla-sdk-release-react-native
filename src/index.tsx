@@ -1,14 +1,22 @@
-import { NativeEventEmitter, Platform } from 'react-native';
+import { NativeEventEmitter } from 'react-native';
 
 import NativeRollaWrapper from './NativeRollaWrapper';
 import type {
+  RollaBatteryResult,
   RollaCloseEvent,
   RollaConfiguration,
   RollaErrorEvent,
   RollaEventMap,
   RollaEventName,
+  RollaNotificationTarget,
+  RollaOpenScreenOptions,
+  RollaOpenScreenStatus,
+  RollaPairedBandResult,
+  RollaScreen,
   RollaShowOptions,
   RollaSubscription,
+  RollaSyncOptions,
+  RollaSyncResult,
 } from './types';
 
 export * from './types';
@@ -18,9 +26,40 @@ const SUPPORTED_EVENTS: readonly RollaEventName[] = [
   'onError',
   'onTokenRefreshed',
   'onTokenExpired',
+  'onSyncHealthDataCompleted',
+  'onUiSyncCompleted',
+  'onActivityCompleted',
+  'onActivityStarted',
+  'onActivityRemoved',
+  'onBandPaired',
+  'onBandUnpaired',
+  'onBandConnected',
+  'onBandDisconnected',
+  'onPrimarySourceChanged',
+  'onGoalsChanged',
+  'onProfileUpdated',
+  'onNotificationTap',
 ] as const;
 
 const LISTENER_WARN_THRESHOLD = 8;
+
+/** Native shape of a resolved notification target; `'none'` maps to `null` in JS. */
+type NativeNotificationTarget =
+  | { kind: 'none' }
+  | { kind: 'appSettings' }
+  | { kind: 'screen'; screen: RollaScreen };
+
+function toNotificationTarget(native: Object): RollaNotificationTarget | null {
+  const target = native as NativeNotificationTarget;
+  switch (target.kind) {
+    case 'appSettings':
+      return { kind: 'appSettings' };
+    case 'screen':
+      return { kind: 'screen', screen: target.screen };
+    default:
+      return null;
+  }
+}
 
 /**
  * `Rolla` is the public surface of `@rolla-health/react-native-sdk`.
@@ -38,7 +77,13 @@ const LISTENER_WARN_THRESHOLD = 8;
  *
  * Two-track API by design:
  *  - `show()` resolves on close, so `await` is ergonomic.
- *  - Events also fire — required for token-refresh signals while the SDK UI is open.
+ *  - Events also fire — required for token-refresh signals while the SDK UI is
+ *    open, and for the observational SDK events, which keep flowing for the
+ *    engine's lifetime after the SDK UI closes.
+ *
+ * Every entry point takes the configuration it runs under, exactly as a native
+ * host builds a `Rolla(configuration)` per call; the SDK engine itself is
+ * process-wide and shared by all of them.
  *
  * The package version equals the native SDK version it pins (iOS pod
  * `RollaSDK` and Android `com.rolla.sdk:android_release`) — see README.md.
@@ -141,6 +186,11 @@ export class Rolla {
     return NativeRollaWrapper.clearSession();
   }
 
+  /**
+   * Tears down the shared Flutter engine. The next call that needs it (a
+   * `show()`, `openScreen()` or headless call) builds a fresh one from the
+   * configuration it is given — the way to apply a changed configuration.
+   */
   static destroyEngine(): Promise<void> {
     return NativeRollaWrapper.destroyEngine();
   }
@@ -155,6 +205,108 @@ export class Rolla {
    */
   static getNativeSdkVersion(): Promise<string> {
     return NativeRollaWrapper.getNativeSdkVersion();
+  }
+
+  /**
+   * Starts and configures the engine ahead of time without presenting any UI,
+   * so the first `show()` presents instantly. Optional: every other entry
+   * point starts the engine itself on first use. Safe to call repeatedly.
+   * Rejects with the SDK's `RollaError` code when start-up fails.
+   */
+  static warmUpEngine(config: RollaConfiguration): Promise<void> {
+    return NativeRollaWrapper.warmUpEngine(config as unknown as Object);
+  }
+
+  /**
+   * Runs a full headless sync of the user's primary data source. Resolves with
+   * the terminal `RollaSyncResult` — including `outcome: 'skipped'` with a
+   * `skipReason` when the sync could not run (the host owns permissions and the
+   * SDK cannot prompt headlessly) and `outcome: 'failure'` with `error`. Rejects
+   * only on a transport failure such as the engine not starting. The same
+   * result is also delivered to `onSyncHealthDataCompleted` listeners.
+   */
+  static syncHealthData(
+    config: RollaConfiguration,
+    options?: RollaSyncOptions
+  ): Promise<RollaSyncResult> {
+    return NativeRollaWrapper.syncHealthData(
+      config as unknown as Object,
+      options?.includeSamples ?? false
+    ) as Promise<RollaSyncResult>;
+  }
+
+  /**
+   * Live BLE read of the paired Rolla band's battery level. Resolves with a
+   * typed status; `level` is present only for `'available'`. Rejects only on a
+   * transport failure.
+   */
+  static getBandBatteryLevel(
+    config: RollaConfiguration
+  ): Promise<RollaBatteryResult> {
+    return NativeRollaWrapper.getBandBatteryLevel(
+      config as unknown as Object
+    ) as Promise<RollaBatteryResult>;
+  }
+
+  /**
+   * Whether the account currently has a Rolla band paired — no Bluetooth
+   * involved (network-first against the profile, local record as fallback).
+   * Rejects only on a transport failure.
+   */
+  static getPairedBandInfo(
+    config: RollaConfiguration
+  ): Promise<RollaPairedBandResult> {
+    return NativeRollaWrapper.getPairedBandInfo(
+      config as unknown as Object
+    ) as Promise<RollaPairedBandResult>;
+  }
+
+  /**
+   * Opens the SDK UI directly on `screen`, presenting it first when needed
+   * (an already-presented UI navigates in place). Resolves with the typed
+   * `RollaOpenScreenStatus`; a presentation failure is also reported through
+   * `onError`. The opened screen becomes the SDK's root, so back returns to
+   * the host app. Close events arrive through `onClose` like a `show()`.
+   */
+  static openScreen(
+    config: RollaConfiguration,
+    screen: RollaScreen,
+    options?: RollaOpenScreenOptions
+  ): Promise<RollaOpenScreenStatus> {
+    return NativeRollaWrapper.openScreen(
+      config as unknown as Object,
+      screen,
+      options?.transition ?? 'default'
+    ) as Promise<RollaOpenScreenStatus>;
+  }
+
+  /**
+   * The Rolla notification tap that launched or resumed the app, if any —
+   * consume it once a session exists and route it with `openScreen()`. Clears
+   * on read. Taps while the app is running arrive as `onNotificationTap`.
+   *
+   * Android resolves the launching intent natively. On iOS the host's
+   * `UNUserNotificationCenterDelegate` forwards the response with
+   * `RollaBridgeNotifications.handle(response:)`; see README.
+   */
+  static async getInitialNotificationTarget(): Promise<RollaNotificationTarget | null> {
+    return toNotificationTarget(
+      await NativeRollaWrapper.getInitialNotificationTarget()
+    );
+  }
+
+  /**
+   * Resolves a notification payload the host received through its own
+   * notification handling (e.g. a push library): the notification's user-info
+   * dictionary on iOS, or `{ payload }` with the intent's `payload` extra on
+   * Android. `null` when the notification is not Rolla's.
+   */
+  static async notificationTarget(
+    payload: Record<string, unknown>
+  ): Promise<RollaNotificationTarget | null> {
+    return toNotificationTarget(
+      await NativeRollaWrapper.notificationTarget(payload as Object)
+    );
   }
 
   static addListener<K extends RollaEventName>(
@@ -193,13 +345,15 @@ export class Rolla {
 
   private static getEmitter(): NativeEventEmitter {
     if (!Rolla._emitter) {
-      // On iOS pass the TurboModule (it inherits RCTEventEmitter on the
-      // native side) so RN does not log "Sending event with no listeners".
-      // On Android pass nothing; emission goes via RCTDeviceEventEmitter.
-      Rolla._emitter =
-        Platform.OS === 'ios'
-          ? new NativeEventEmitter(NativeRollaWrapper as unknown as never)
-          : new NativeEventEmitter();
+      // Pass the TurboModule on both platforms so RN reports every
+      // subscription to native (`addListener` / `removeListeners`): iOS uses
+      // that to skip emitting into the void, and both sides use it to queue a
+      // notification tap for `getInitialNotificationTarget()` when no JS
+      // listener is attached yet. Android emission itself still goes through
+      // RCTDeviceEventEmitter.
+      Rolla._emitter = new NativeEventEmitter(
+        NativeRollaWrapper as unknown as never
+      );
     }
     return Rolla._emitter;
   }

@@ -19,17 +19,45 @@ jest.mock('react-native', () => {
     destroyEngine: jest.fn(async () => undefined),
     isPresenting: jest.fn(async () => false),
     getNativeSdkVersion: jest.fn(async () => '0.0.0'),
+    warmUpEngine: jest.fn(async () => undefined),
+    syncHealthData: jest.fn(async () => ({
+      outcome: 'skipped',
+      hasNewData: false,
+      source: 'band',
+      skipReason: 'noBandPaired',
+    })),
+    getBandBatteryLevel: jest.fn(async () => ({
+      status: 'available',
+      level: 80,
+    })),
+    getPairedBandInfo: jest.fn(async () => ({ status: 'noBandPaired' })),
+    openScreen: jest.fn(async () => 'opened'),
+    getInitialNotificationTarget: jest.fn(async () => ({ kind: 'none' })),
+    notificationTarget: jest.fn(async () => ({ kind: 'none' })),
     addListener: jest.fn(),
     removeListeners: jest.fn(),
   };
+  // Mirrors RN's NativeEventEmitter: every subscription is reported to the
+  // native module so it can tell whether JS is listening.
   class NativeEventEmitter {
+    private module:
+      | { addListener(e: string): void; removeListeners(n: number): void }
+      | undefined;
+    constructor(module?: {
+      addListener(e: string): void;
+      removeListeners(n: number): void;
+    }) {
+      this.module = module;
+    }
     addListener(event: string, listener: (payload: unknown) => void) {
+      this.module?.addListener(event);
       if (!listeners.has(event)) {
         listeners.set(event, new Set());
       }
       listeners.get(event)!.add(listener);
       return {
         remove: () => {
+          this.module?.removeListeners(1);
           listeners.get(event)?.delete(listener);
         },
       };
@@ -48,7 +76,15 @@ jest.mock('react-native', () => {
 });
 
 type MockedReactNative = {
-  __native: { show: jest.Mock };
+  __native: {
+    show: jest.Mock;
+    syncHealthData: jest.Mock;
+    openScreen: jest.Mock;
+    getInitialNotificationTarget: jest.Mock;
+    notificationTarget: jest.Mock;
+    addListener: jest.Mock;
+    removeListeners: jest.Mock;
+  };
   __emit: (event: string, payload: unknown) => void;
   __listenerCount: (event: string) => number;
 };
@@ -182,5 +218,78 @@ describe('Rolla.show()', () => {
     await flush();
     rn.__emit('onClose', CLOSE);
     await expect(next).resolves.toEqual(CLOSE);
+  });
+});
+
+describe('headless and navigation entry points', () => {
+  it('passes the configuration and includeSamples through to native', async () => {
+    await expect(Rolla.syncHealthData(CONFIG)).resolves.toMatchObject({
+      outcome: 'skipped',
+      skipReason: 'noBandPaired',
+    });
+    expect(rn.__native.syncHealthData).toHaveBeenLastCalledWith(CONFIG, false);
+
+    await Rolla.syncHealthData(CONFIG, { includeSamples: true });
+    expect(rn.__native.syncHealthData).toHaveBeenLastCalledWith(CONFIG, true);
+  });
+
+  it('opens a screen with the default transition unless one is given', async () => {
+    await expect(Rolla.openScreen(CONFIG, 'goals')).resolves.toBe('opened');
+    expect(rn.__native.openScreen).toHaveBeenLastCalledWith(
+      CONFIG,
+      'goals',
+      'default'
+    );
+
+    await Rolla.openScreen(CONFIG, 'insights', { transition: 'fade' });
+    expect(rn.__native.openScreen).toHaveBeenLastCalledWith(
+      CONFIG,
+      'insights',
+      'fade'
+    );
+  });
+});
+
+describe('notification targets', () => {
+  it("maps the native 'none' sentinel to null", async () => {
+    await expect(Rolla.getInitialNotificationTarget()).resolves.toBeNull();
+    await expect(Rolla.notificationTarget({ foo: 'bar' })).resolves.toBeNull();
+    expect(rn.__native.notificationTarget).toHaveBeenCalledWith({ foo: 'bar' });
+  });
+
+  it('passes screen and app-settings targets through typed', async () => {
+    rn.__native.getInitialNotificationTarget.mockResolvedValueOnce({
+      kind: 'screen',
+      screen: 'resume',
+    });
+    await expect(Rolla.getInitialNotificationTarget()).resolves.toEqual({
+      kind: 'screen',
+      screen: 'resume',
+    });
+
+    rn.__native.notificationTarget.mockResolvedValueOnce({
+      kind: 'appSettings',
+    });
+    await expect(Rolla.notificationTarget({})).resolves.toEqual({
+      kind: 'appSettings',
+    });
+  });
+});
+
+describe('Rolla.addListener()', () => {
+  it('reports subscriptions to native so taps can be queued while nothing listens', () => {
+    const sub = Rolla.addListener('onNotificationTap', () => {});
+    expect(rn.__native.addListener).toHaveBeenCalledWith('onNotificationTap');
+    expect(rn.__listenerCount('onNotificationTap')).toBe(1);
+
+    sub.remove();
+    expect(rn.__native.removeListeners).toHaveBeenCalledWith(1);
+    expect(rn.__listenerCount('onNotificationTap')).toBe(0);
+  });
+
+  it('rejects event names the wrapper does not emit', () => {
+    expect(() =>
+      Rolla.addListener('onSomethingElse' as never, () => {})
+    ).toThrow(/Unknown event/);
   });
 });

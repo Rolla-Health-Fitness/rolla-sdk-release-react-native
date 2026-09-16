@@ -16,6 +16,25 @@ static NSString *const kEventClose          = @"onClose";
 static NSString *const kEventError          = @"onError";
 static NSString *const kEventTokenRefreshed = @"onTokenRefreshed";
 static NSString *const kEventTokenExpired   = @"onTokenExpired";
+static NSString *const kEventNotificationTap = @"onNotificationTap";
+
+// Observational SDK events, emitted with the payloads RollaBridge encodes.
+static NSArray<NSString *> *RollaObservationalEvents(void) {
+  return @[
+    @"onSyncHealthDataCompleted",
+    @"onUiSyncCompleted",
+    @"onActivityCompleted",
+    @"onActivityStarted",
+    @"onActivityRemoved",
+    @"onBandPaired",
+    @"onBandUnpaired",
+    @"onBandConnected",
+    @"onBandDisconnected",
+    @"onPrimarySourceChanged",
+    @"onGoalsChanged",
+    @"onProfileUpdated",
+  ];
+}
 
 // Matches RollaBridgeError.codeUserInfoKey on the Swift side.
 static NSString *const kBridgeErrorCodeKey  = @"code";
@@ -33,6 +52,9 @@ RCT_EXPORT_MODULE()
   if ((self = [super init])) {
     _rollaBridge = [[RollaBridge alloc] init];
     _rollaBridge.listener = self;
+    // Notification taps forwarded by the host's AppDelegate reach JS through
+    // this module while it is alive.
+    RollaBridgeNotifications.listener = self;
   }
   return self;
 }
@@ -42,7 +64,10 @@ RCT_EXPORT_MODULE()
 }
 
 - (NSArray<NSString *> *)supportedEvents {
-  return @[ kEventClose, kEventError, kEventTokenRefreshed, kEventTokenExpired ];
+  NSMutableArray<NSString *> *events = [@[ kEventClose, kEventError, kEventTokenRefreshed,
+                                           kEventTokenExpired, kEventNotificationTap ] mutableCopy];
+  [events addObjectsFromArray:RollaObservationalEvents()];
+  return events;
 }
 
 - (void)startObserving {
@@ -54,6 +79,9 @@ RCT_EXPORT_MODULE()
 }
 
 - (void)invalidate {
+  if (RollaBridgeNotifications.listener == self) {
+    RollaBridgeNotifications.listener = nil;
+  }
   dispatch_async(dispatch_get_main_queue(), ^{
     [self.rollaBridge invalidate];
   });
@@ -94,7 +122,14 @@ RCT_EXPORT_MODULE()
   return top;
 }
 
-#pragma mark - NativeRollaWrapperSpec
+/// Rejects with the JS code the Swift side attached to the error.
+static void RollaReject(RCTPromiseRejectBlock reject, NSError *error, NSString *fallbackCode) {
+  NSString *code = error.userInfo[kBridgeErrorCodeKey] ?: fallbackCode;
+  NSString *message = error.localizedDescription ?: @"An unknown error occurred.";
+  reject(code, message, error);
+}
+
+#pragma mark - NativeRollaWrapperSpec: presentation
 
 - (void)show:(NSDictionary *)config
   transition:(NSString *)transition
@@ -116,9 +151,7 @@ RCT_EXPORT_MODULE()
                                           presenter:presenter
                                               error:&error];
     if (!started) {
-      NSString *code = error.userInfo[kBridgeErrorCodeKey] ?: @"SHOW_FAILED";
-      NSString *message = error.localizedDescription ?: @"Failed to launch Rolla.";
-      reject(code, message, error);
+      RollaReject(reject, error, @"SHOW_FAILED");
       return;
     }
     resolve(nil);
@@ -191,6 +224,114 @@ RCT_EXPORT_MODULE()
   resolve(kNativeSdkVersion);
 }
 
+#pragma mark - NativeRollaWrapperSpec: headless
+
+- (void)warmUpEngine:(NSDictionary *)config
+             resolve:(RCTPromiseResolveBlock)resolve
+              reject:(RCTPromiseRejectBlock)reject
+{
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [self.rollaBridge warmUpEngineWithConfig:config completion:^(NSError *_Nullable error) {
+      if (error != nil) {
+        RollaReject(reject, error, @"UNKNOWN");
+      } else {
+        resolve(nil);
+      }
+    }];
+  });
+}
+
+- (void)syncHealthData:(NSDictionary *)config
+        includeSamples:(BOOL)includeSamples
+               resolve:(RCTPromiseResolveBlock)resolve
+                reject:(RCTPromiseRejectBlock)reject
+{
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [self.rollaBridge syncHealthDataWithConfig:config
+                                includeSamples:includeSamples
+                                    completion:^(NSDictionary *_Nullable result, NSError *_Nullable error) {
+      if (error != nil) {
+        RollaReject(reject, error, @"UNKNOWN");
+      } else {
+        resolve(result);
+      }
+    }];
+  });
+}
+
+- (void)getBandBatteryLevel:(NSDictionary *)config
+                    resolve:(RCTPromiseResolveBlock)resolve
+                     reject:(RCTPromiseRejectBlock)reject
+{
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [self.rollaBridge getBandBatteryLevelWithConfig:config
+                                         completion:^(NSDictionary *_Nullable result, NSError *_Nullable error) {
+      if (error != nil) {
+        RollaReject(reject, error, @"UNKNOWN");
+      } else {
+        resolve(result);
+      }
+    }];
+  });
+}
+
+- (void)getPairedBandInfo:(NSDictionary *)config
+                  resolve:(RCTPromiseResolveBlock)resolve
+                   reject:(RCTPromiseRejectBlock)reject
+{
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [self.rollaBridge getPairedBandInfoWithConfig:config
+                                       completion:^(NSDictionary *_Nullable result, NSError *_Nullable error) {
+      if (error != nil) {
+        RollaReject(reject, error, @"UNKNOWN");
+      } else {
+        resolve(result);
+      }
+    }];
+  });
+}
+
+#pragma mark - NativeRollaWrapperSpec: navigation and notifications
+
+- (void)openScreen:(NSDictionary *)config
+            screen:(NSString *)screen
+        transition:(NSString *)transition
+           resolve:(RCTPromiseResolveBlock)resolve
+            reject:(RCTPromiseRejectBlock)reject
+{
+  dispatch_async(dispatch_get_main_queue(), ^{
+    UIViewController *presenter = [self topPresentedViewController];
+    if (presenter == nil) {
+      reject(@"NO_PRESENTER", @"Unable to find a view controller to present from.", nil);
+      return;
+    }
+    [self.rollaBridge openScreenWithConfig:config
+                                    screen:screen
+                                transition:transition ?: @"default"
+                                 presenter:presenter
+                                completion:^(NSString *_Nullable status, NSError *_Nullable error) {
+      if (error != nil) {
+        RollaReject(reject, error, @"UNKNOWN");
+      } else {
+        resolve(status);
+      }
+    }];
+  });
+}
+
+- (void)getInitialNotificationTarget:(RCTPromiseResolveBlock)resolve
+                              reject:(RCTPromiseRejectBlock)reject
+{
+  resolve([RollaBridgeNotifications consumePendingTarget]);
+}
+
+- (void)notificationTarget:(NSDictionary *)payload
+                   resolve:(RCTPromiseResolveBlock)resolve
+                    reject:(RCTPromiseRejectBlock)reject
+{
+  resolve([RollaBridgeNotifications resolveUserInfo:payload ?: @{}]);
+}
+
 // `RCTEventEmitter` provides `addListener:` and `removeListeners:` matching
 // the codegen protocol selectors — no overrides needed.
 
@@ -226,6 +367,17 @@ RCT_EXPORT_MODULE()
 - (void)rollaBridgeDidRequestTokenRefresh {
   if (!self.hasListeners) return;
   [self sendEventWithName:kEventTokenExpired body:@{}];
+}
+
+- (void)rollaBridgeDidReceiveEventWithName:(NSString *)name payload:(NSDictionary *)payload {
+  if (!self.hasListeners) return;
+  [self sendEventWithName:name body:payload];
+}
+
+- (BOOL)rollaBridgeDidReceiveNotificationTapWithPayload:(NSDictionary *)payload {
+  if (!self.hasListeners) return NO;
+  [self sendEventWithName:kEventNotificationTap body:payload];
+  return YES;
 }
 
 @end

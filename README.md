@@ -358,8 +358,91 @@ A value the SDK does not know — a misspelled module name, an unparsable color,
 | `Rolla.destroyEngine()` | Tear down the embedded Flutter engine to reclaim memory. Call it after changing the configuration, otherwise the cached engine keeps the old one. |
 | `Rolla.isPresenting()` | `true` while the SDK UI is on-screen. |
 | `Rolla.getNativeSdkVersion()` | The native SDK version this package links — equal to the package version. |
-| `Rolla.addListener(event, fn)` | Subscribe to `'onClose' \| 'onError' \| 'onTokenRefreshed' \| 'onTokenExpired'`. |
+| `Rolla.warmUpEngine(config)` | Starts and configures the engine ahead of time without presenting any UI, so the first `show()` presents instantly. Optional and safe to call repeatedly. |
+| `Rolla.syncHealthData(config, { includeSamples? })` | Headless sync of the user's primary data source. Resolves with a `RollaSyncResult` — see [Headless calls](#headless-calls). |
+| `Rolla.getBandBatteryLevel(config)` | Live BLE read of the paired band's battery. Resolves with `{ status, level? }`. |
+| `Rolla.getPairedBandInfo(config)` | Whether the account has a band paired, no Bluetooth involved. Resolves with `{ status, band? }`. |
+| `Rolla.openScreen(config, screen, options?)` | Opens the SDK UI directly on a screen. Resolves with a `RollaOpenScreenStatus` — see [Opening a screen](#opening-a-screen). |
+| `Rolla.getInitialNotificationTarget()` | The Rolla notification tap that launched or resumed the app, or `null`. Clears on read — see [Notification taps](#notification-taps). |
+| `Rolla.notificationTarget(payload)` | Resolves a notification payload your own notification handling received; `null` when it is not Rolla's. |
+| `Rolla.addListener(event, fn)` | Subscribe to any event in the table below. |
 | `Rolla.removeAllListeners()` | Hard reset all subscriptions (useful between screens in tests). |
+
+Every entry point takes the configuration it runs under, exactly as a native host builds a `Rolla(configuration)` per call. The SDK engine itself is process-wide: the first call starts it, later calls reuse it, and `destroyEngine()` is how a changed configuration takes effect.
+
+### Headless calls
+
+`syncHealthData`, `getBandBatteryLevel` and `getPairedBandInfo` run without presenting any UI. They resolve with the SDK's typed result — including the "could not run" cases — and reject only on a transport failure (the engine not starting, an SDK `RollaError`).
+
+```ts
+const result = await Rolla.syncHealthData(config, { includeSamples: false });
+switch (result.outcome) {
+  case 'success':
+  case 'partial':
+    console.log('synced', result.source, result.syncedData?.syncedDates);
+    break;
+  case 'skipped':
+    // The host owns permissions and the SDK cannot prompt headlessly:
+    // 'noBandPaired' | 'bandNotConnected' | 'bluetoothPermissionRequired' |
+    // 'appleHealthPermissionRequired' | 'healthConnectPermissionRequired' | …
+    console.log('skipped because', result.skipReason);
+    break;
+  case 'failure':
+    console.warn(result.error);
+    break;
+}
+
+const battery = await Rolla.getBandBatteryLevel(config);
+// battery.status: 'available' | 'noBandPaired' | 'bandNotConnected' | 'notRollaDevice'
+//               | 'bluetoothUnavailable' | 'bluetoothPermissionRequired' | 'unknownError' | 'unknown'
+// battery.level only for 'available'
+
+const paired = await Rolla.getPairedBandInfo(config);
+// paired.status: 'bandPaired' | 'noBandPaired' | 'unknown'; paired.band only for 'bandPaired'
+```
+
+The same `RollaSyncResult` is also delivered to `onSyncHealthDataCompleted` listeners.
+
+### Opening a screen
+
+```ts
+const status = await Rolla.openScreen(config, 'goals', { transition: 'fade' });
+// 'opened' | 'notInitialized' | 'screenDisabled' | 'blockedByGate'
+// | 'uiUnavailable' | 'superseded' | 'unknownError'
+```
+
+Screens: `'home' | 'activityHistory' | 'goals' | 'insights' | 'resume'`. The SDK UI is presented first when needed; an already-presented UI navigates in place. The opened screen becomes the SDK's root, so back returns to your app. Close events arrive through `onClose`, exactly like a `show()`.
+
+### Notification taps
+
+The SDK posts its own notifications (workout in progress, reminders). A tap resolves to a `RollaNotificationTarget` — `{ kind: 'screen', screen }` to route with `openScreen()`, or `{ kind: 'appSettings' }` to send the user to the OS app settings.
+
+- **While the app is running**, taps arrive as the `onNotificationTap` event.
+- **When a tap launches the app** (or resumes it before your listeners are attached), call `Rolla.getInitialNotificationTarget()` once a user session exists and route the result. It clears on read.
+
+Android resolves the launching intent natively; nothing to add. On iOS the SDK never claims the notification-center delegate, so forward taps from your `AppDelegate`:
+
+```swift
+import RollaWrapper
+import UserNotifications
+
+// In application(_:didFinishLaunchingWithOptions:):
+UNUserNotificationCenter.current().delegate = self
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    // Returns false for notifications that are not Rolla's — handle those yourself.
+    _ = RollaBridgeNotifications.handle(response: response)
+    completionHandler()
+  }
+}
+```
+
+If a push library already owns the delegate, hand it the notification's user-info dictionary instead: `Rolla.notificationTarget(userInfo)` on iOS, or `Rolla.notificationTarget({ payload })` with the intent's `payload` string extra on Android.
 
 ### Events
 
@@ -369,6 +452,18 @@ A value the SDK does not know — a misspelled module name, an unparsable color,
 | `onError` | `{ code: string; message: string; presentationFailed: boolean }` — `presentationFailed` is `true` when the error ended a pending `show()` (no `onClose` follows and that `show()` rejects), `false` for errors raised while the SDK UI is running. |
 | `onTokenRefreshed` | `{ token: string; refreshToken?: string; expiresIn?: number }` — store the rotated pair; refresh tokens are single-use. |
 | `onTokenExpired` | `{}` — call `Rolla.updateToken(...)` from your handler with new credentials. |
+| `onSyncHealthDataCompleted` | `RollaSyncResult` — a headless `syncHealthData()` finished. |
+| `onUiSyncCompleted` | `RollaSyncResult` — a sync run by the SDK UI finished. |
+| `onActivityStarted` | `{ activityId, type?, startTime?, origin, catalogId? }` — `origin` is `'fresh'` or `'crashRecovery'`. |
+| `onActivityCompleted` | `{ activityId, phase, source, type?, totalDurationS?, totalDistanceM?, totalCalories?, startTime?, endTime?, … }` — fires once per `phase`: `'finished'`, then `'uploaded'` or `'uploadFailed'`. |
+| `onActivityRemoved` | `{ activityId, reason }` — `'canceled'` or `'deleted'`. |
+| `onBandPaired` / `onBandUnpaired` / `onBandConnected` / `onBandDisconnected` | `RollaBandInfo` — `{ macAddress, name?, rssi?, deviceType?, batteryPercent?, firmwareVersion?, serialNumber? }`. |
+| `onPrimarySourceChanged` | `{ previousSource, currentSource }` — `RollaSyncSource` values. |
+| `onGoalsChanged` | `{ changedGoals, enabledGoals }` — arrays of `{ id, name, enabled }`. |
+| `onProfileUpdated` | `{ changedFields }` — the profile fields the user changed, keyed by name. |
+| `onNotificationTap` | `RollaNotificationTarget` — see [Notification taps](#notification-taps). |
+
+Dates in payloads are ISO-8601 strings; sample timestamps inside `syncedData.samples` are epoch milliseconds. The observational events are engine-scoped: they keep flowing after the SDK UI closes, for as long as the engine lives, and are delivered to whichever listeners are attached at that moment.
 
 ---
 

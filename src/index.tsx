@@ -41,7 +41,9 @@ const SUPPORTED_EVENTS: readonly RollaEventName[] = [
   'onNotificationTap',
 ] as const;
 
-const LISTENER_WARN_THRESHOLD = 8;
+// A host that mirrors the native demos wires every event (17) plus its own;
+// warn only on counts that point at leaked effect subscriptions.
+const LISTENER_WARN_THRESHOLD = 40;
 
 /** Native shape of a resolved notification target; `'none'` maps to `null` in JS. */
 type NativeNotificationTarget =

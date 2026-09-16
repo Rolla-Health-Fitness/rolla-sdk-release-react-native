@@ -8,6 +8,12 @@ runs:
       uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
       with:
         node-version-file: .nvmrc
+        # This action caches node_modules itself (below). setup-node v5 also
+        # caches the Yarn cache folder by default whenever package.json has a
+        # packageManager field, and its post-job save fails the job when that
+        # folder does not exist — which is exactly the case when the
+        # node_modules restore hits and `yarn install` is skipped.
+        package-manager-cache: false
 
     - name: Restore dependencies
       id: yarn-cache

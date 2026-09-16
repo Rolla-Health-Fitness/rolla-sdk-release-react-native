@@ -108,6 +108,8 @@ jobs:
         with:
           node-version-file: .nvmrc
           registry-url: https://registry.npmjs.org
+          # See .github/actions/setup/action.yml — no automatic Yarn cache.
+          package-manager-cache: false
 
       - name: Verify npm supports trusted publishing
         run: |

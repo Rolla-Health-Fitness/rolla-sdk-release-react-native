@@ -8,6 +8,26 @@
 - `[documentation]` — documentation-only change.
 - `[fix]` — bug fix.
 
+This file is the synced copy of the Rolla SDK changelog (`rolla-sdk/CHANGELOG.md`). Every iOS and Android entry applies to React Native hosts as well. A section marked **React Native only** was released for `@rolla-health/react-native-sdk` alone and links the native SDK version named in its first line.
+
+---
+
+## 0.1.16
+
+**React Native only** — links native SDK **0.1.15**. There is no native 0.1.16: the next Rolla SDK release is 0.2.0, and from then on the npm version and the native version are equal again.
+
+### React Native
+
+- **[feature] The wrapper now exposes the complete 0.1.15 host-facing API.** Twelve observational events (`onSyncHealthDataCompleted`, `onUiSyncCompleted`, `onActivityStarted`, `onActivityCompleted`, `onActivityRemoved`, `onBandPaired`, `onBandUnpaired`, `onBandConnected`, `onBandDisconnected`, `onPrimarySourceChanged`, `onGoalsChanged`, `onProfileUpdated`) with JSON-friendly payloads; the headless `warmUpEngine`, `syncHealthData({ includeSamples })`, `getBandBatteryLevel` and `getPairedBandInfo` with the SDK's typed results; `openScreen(config, screen, { transition })` resolving a `RollaOpenScreenStatus`; and notification-tap routing — `onNotificationTap` while the app runs, `getInitialNotificationTarget()` for the tap that launched it, and `notificationTarget(payload)` for hosts whose push library owns the notification delegate (iOS forwards taps with `RollaBridgeNotifications.handle(response:)`). Every entry point takes the configuration it runs under, exactly as a native host builds a `Rolla(configuration)` per call.
+
+- **[fix] `updateToken()` and `clearSession()` keep working after the SDK UI closes.** The wrapper dropped its `Rolla` instance on every close, although the engine keeps running: a token push after a close was rejected, and a logout after a closed session reported success while the SDK's stored tokens stayed on the device. The instance now lives until `destroyEngine()`, like a native host's.
+
+- **[breaking] `clearSession()` on a cold engine no longer pretends to succeed.** The native clear needs a running engine. Pass your configuration — `clearSession(config)` warms the engine first, the SDK's documented logout recipe — or handle the new `NO_ACTIVE_SESSION` rejection. `updateToken()` rejects with the same code on both platforms when no engine is running (iOS previously reported it as `UPDATE_TOKEN_FAILED`).
+
+- **[improvement] `environment` is optional and defaults to `'rnd'`, as in the native configuration.**
+
+- **[documentation] The README covers everything the native 0.1.15 integration guides ask of a host app, linking the exact docs section instead of repeating native code:** HealthKit and Bluetooth Central entitlements, Live Activities, the Android Mapbox token, the Health Connect manifest set with the rationale intent-filter, activity alias and queries, the optional alarm and battery-optimization permissions, the `launchMode` trade-off of a React Native app, the SDK's notifications and their tap destinations, warm versus cold `openScreen`, the host's token duties, the logout order, debug-log recipes, ProGuard and notification channels. Call `show()` and `openScreen()` from a settled screen — a React Native `Modal` that is still dismissing swallows the SDK's presentation on iOS.
+
 ---
 
 ## 0.1.15

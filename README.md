@@ -11,12 +11,19 @@ This package wraps the **same** native iOS pod (`RollaSDK`) and Android Maven ar
 
 ## Versioning
 
-**The package version is the native SDK version.** `@rolla-health/react-native-sdk@0.1.15` links iOS pod `RollaSDK 0.1.15` and Android `com.rolla.sdk:android_release:0.1.15`, exactly, and every official SDK release ships an npm version carrying the same number.
+**The package is released in lockstep with the native SDK, and the package version names the native version it links** — with one exception, listed below. Every official Rolla SDK release ships an npm version carrying the same number, and that npm version pins iOS pod `RollaSDK` and Android `com.rolla.sdk:android_release` to exactly that number.
 
-- Pin the **exact** version in your `package.json` (`"0.1.15"`, not `"^0.1.15"`). The native pins inside the package are exact too, so if your Podfile or Gradle files pin a conflicting `RollaSDK` / `android_release` version, the build fails fast — that is intentional.
+| npm `@rolla-health/react-native-sdk` | Native SDK it links | Partner docs |
+| --- | --- | --- |
+| `0.1.16` (current) | **`0.1.15`** — a React Native-only release: it completes the JS surface of the 0.1.15 SDK (every host event, the headless methods, `openScreen`, notification taps). There is no native 0.1.16. | [`release/0.1.15`](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/README.md) |
+| `0.1.15` | `0.1.15` — first lockstep release; exposes the presentation and token API only | [`release/0.1.15`](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/README.md) |
+| `0.2.0` and later | equal to the package version, always | `release/<version>` |
+
+- Pin the **exact** version in your `package.json` (`"0.1.16"`, not `"^0.1.16"`). The native pins inside the package are exact too, so if your Podfile or Gradle files pin a conflicting `RollaSDK` / `android_release` version, the build fails fast — that is intentional.
 - Upgrading is one number: bump the package, run `cd ios && pod install` and `cd android && ./gradlew --refresh-dependencies` (see [Verify the integration](#5-verify-the-integration)), rebuild.
-- `Rolla.getNativeSdkVersion()` resolves with the linked native version — always equal to the package version.
-- `CHANGELOG.md` in this repository is a synced copy of the SDK changelog. Every iOS and Android entry applies to React Native hosts as well.
+- `Rolla.getNativeSdkVersion()` resolves with the linked native version — the `nativeSdkVersion` field of this package's `package.json`, which is also where the podspec and the Gradle build read their pins from.
+- `CHANGELOG.md` in this repository is a synced copy of the SDK changelog. Every iOS and Android entry applies to React Native hosts as well; a section marked *React Native only* was released for this package alone.
+- The native SDK's own partner documentation applies to React Native hosts one-to-one for everything that happens inside the native projects — entitlements, manifests, widget extensions. This README links to the exact section for the pinned native version rather than repeating it.
 
 ### Toolchain requirements
 
@@ -33,7 +40,7 @@ Why RN 0.80 is the floor: the native Android SDK ships with Kotlin 2.2 metadata,
 
 ## Reference integration
 
-A complete working integration lives at [`rolla-sdk-demo-react-native`](https://github.com/Rolla-Health-Fitness/rolla-sdk-demo-react-native) on the `dev` branch — full Podfile, full `settings.gradle`, login and token-refresh flow, all the hooks below. When the docs and your build disagree, the demo is the source of truth.
+A complete working integration lives at [`rolla-sdk-demo-react-native`](https://github.com/Rolla-Health-Fitness/rolla-sdk-demo-react-native) on the `dev` branch — full Podfile, entitlements and Live Activity extension, full `settings.gradle` and `AndroidManifest.xml`, login and token-refresh flow, every hook below, and the same configuration screen, Public API rows, event timeline and notification routing as the native demo apps. When the docs and your build disagree, the demo is the source of truth.
 
 ---
 
@@ -42,9 +49,9 @@ A complete working integration lives at [`rolla-sdk-demo-react-native`](https://
 ### 1. Install the package
 
 ```sh
-yarn add @rolla-health/react-native-sdk@0.1.15
+yarn add @rolla-health/react-native-sdk@0.1.16
 # or
-npm install @rolla-health/react-native-sdk@0.1.15
+npm install @rolla-health/react-native-sdk@0.1.16
 ```
 
 No authentication required — the package is published to the public npm registry.
@@ -56,7 +63,7 @@ Your `package.json` should end up with an exact pin for the wrapper and for Reac
   "dependencies": {
     "react": "19.1.0",                            // exact — must match your RN release
     "react-native": "0.80.3",
-    "@rolla-health/react-native-sdk": "0.1.15"    // exact — the native SDK version
+    "@rolla-health/react-native-sdk": "0.1.16"    // exact — see Versioning for the native SDK it links
   }
 }
 ```
@@ -187,6 +194,30 @@ Mint your `MBXAccessToken` at https://account.mapbox.com (free tier is sufficien
 > [!WARNING]
 > Skipping any of `NSBluetoothAlwaysUsageDescription`, `NSLocationWhenInUseUsageDescription`, or `NSMotionUsageDescription` will crash the app at `Rolla.show()` with `App terminated due to signal 6.` from `CBCentralManager`, `CLLocationManager`, or `CMMotionManager` respectively — the abort is silent in console logs.
 
+The rationale for every key, in wording you can lift into your privacy policy and the App Store Connect privacy form, is in the native docs: [iOS Permissions & Entitlements → Permissions Rationale](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/ios/03-permissions-and-entitlements.md#permissions-rationale).
+
+#### Entitlements
+
+Two capabilities live in your app target's `.entitlements` file, not in `Info.plist` — a fresh React Native template has neither:
+
+- **HealthKit** — required for Apple Health. Add the capability in Xcode (Signing & Capabilities → + Capability → HealthKit); it writes `com.apple.developer.healthkit` and the empty `com.apple.developer.healthkit.access` array. The App ID must be registered on your Apple Developer account. Without it the SDK's Apple Health connection cannot be authorized.
+- **Bluetooth Central** — `com.apple.developer.bluetooth-central`, the App Store capability for the SDK's BLE central role.
+
+Exact keys and steps: [iOS Permissions & Entitlements → Configure Entitlements](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/ios/03-permissions-and-entitlements.md#configure-entitlements). Apple Health itself needs no code on your side — the SDK reads the 14 HealthKit types listed in [iOS Apple Health](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/ios/06-apple-health.md) and prompts the user from its own UI.
+
+#### Live Activities (optional, iOS 16.1+)
+
+The SDK drives a Lock Screen / Dynamic Island Live Activity during workouts. Everything it needs is native and lives in your `ios/` project exactly as in a Swift app: a Widget Extension target named `liveworkout`, three Swift files (the shared `LiveWorkoutAttributes` data contract compiled into both targets, the widget bundle, and the SwiftUI UI you own and can restyle), the Push Notifications capability on both targets, and two keys in the main app's `Info.plist`:
+
+```xml
+<key>NSSupportsLiveActivities</key>
+<true/>
+<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+<true/>
+```
+
+No JavaScript is involved. Follow the step-by-step procedure and copy the complete Swift sources from [iOS Live Activities](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/ios/09-live-activities.md); the React Native demo carries a working `ios/liveworkout` target you can compare against. Apps whose deployment target is below 16.1 still build — the SDK skips Live Activities on older devices.
+
 ### 4. Android — register the three Maven repositories
 
 The native `com.rolla.sdk:android_release` artifact and its Flutter/Mapbox transitive dependencies live in three separate public Maven repositories. You must register them in your app's `android/settings.gradle` (libraries cannot declare these repositories on your behalf under the strict resolution mode RN templates use).
@@ -245,11 +276,33 @@ dependencies {
 }
 ```
 
-The Android side does not need extra manifest permission strings — the native `com.rolla.sdk:android_release` AAR declares its required `BLUETOOTH_*`, `ACCESS_*_LOCATION`, `ACTIVITY_RECOGNITION`, and foreground-service permissions, and they are merged into your app's `AndroidManifest.xml` automatically by AGP.
+#### Mapbox token
+
+Route maps need the Mapbox public token in `android/app/src/main/res/values/strings.xml` (the Android counterpart of `MBXAccessToken`):
+
+```xml
+<string name="mapbox_access_token">YOUR_MAPBOX_PUBLIC_TOKEN</string>
+```
+
+Without it the SDK runs, but every map stays blank — see [Android Permissions → Mapbox Token](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/android/03-permissions.md#mapbox-token).
+
+#### AndroidManifest.xml
+
+The native `com.rolla.sdk:android_release` AAR declares the Bluetooth, location, activity-recognition, foreground-service, notification and boot permissions it needs, and AGP merges them into your app. Three things are still yours to declare, because Google reviews the **merged** manifest under your app's identity:
+
+- **Health Connect** — the full read set (`android.permission.health.READ_*`), the permissions-rationale intent-filter on the activity that hosts the SDK (your `MainActivity`), the `ViewPermissionUsageActivity` alias for Android 14, and the `<queries>` block that lets the SDK detect the Health Connect app. Copy them from [Android Permissions → Health Connect](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/android/03-permissions.md#health-connect-android); the React Native demo's `android/app/src/main/AndroidManifest.xml` is the same set applied to a React Native template.
+- **Optional permissions the SDK leaves to you** — `SCHEDULE_EXACT_ALARM` for on-time reminders and `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` for the OEM battery-manager exemption; see the [Permissions Rationale](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/android/03-permissions.md#permissions-rationale) and [OEM Battery Optimization](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/android/09-troubleshooting.md#oem-battery-optimization).
+- **Your Play listing** — declare the permissions you ship in the Data Safety form and your privacy policy; the rationale matrix in the same docs page is written to be lifted into both. Listing the SDK-merged permissions explicitly in your own manifest, as the native demo does, keeps that declaration reviewable.
+
+`launchMode`: the React Native template declares `MainActivity` as `singleTask`. The native docs advise against it for Rolla notification taps, because a `singleTask` launcher takes a tap by clearing every activity above it — the SDK UI included. Keep `singleTask` anyway in a React Native app: the alternative, `singleTop`, stacks a second `MainActivity` (and a second React root) over the SDK UI whenever the SDK is on top. The wrapper handles the `singleTask` path: the tap reaches `onNewIntent`, arrives in JavaScript as `onNotificationTap`, and your `openScreen()` re-presents the SDK on the tapped screen — the visible cost is the SDK UI closing and re-opening rather than merely coming back to the front.
+
+Notification channels: the SDK creates its own, with brand-neutral names that read naturally under your app's name in system settings; nothing to declare — see [Android Permissions → Notification Channels](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/android/03-permissions.md#notification-channels).
+
+ProGuard / R8: the AAR bundles consumer rules, so minified release builds need no manual configuration. Verify your release build with `minifyEnabled true` through the full flow once (open, dismiss, token refresh) — see [Android Gradle Setup → ProGuard / R8](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/android/02-gradle-setup.md#proguard--r8).
 
 ### 5. Verify the integration
 
-After installing on a physical device, call `Rolla.getNativeSdkVersion()` once on app load — it resolves with the native SDK version, which equals the installed package version (`'0.1.15'`). If you instead get `Invariant Violation: TurboModuleRegistry.getEnforcing('RollaWrapper') could not be found`, the autolinking did not pick up the wrapper — clean `ios/Pods` + `android/build/` and re-install.
+After installing on a physical device, call `Rolla.getNativeSdkVersion()` once on app load — it resolves with the native SDK version this package links (`'0.1.15'` for package `0.1.16`, see [Versioning](#versioning)). If you instead get `Invariant Violation: TurboModuleRegistry.getEnforcing('RollaWrapper') could not be found`, the autolinking did not pick up the wrapper — clean `ios/Pods` + `android/build/` and re-install.
 
 > [!IMPORTANT]
 > **Whenever you bump `@rolla-health/react-native-sdk` (every bump points at a different native artifact), run:**
@@ -272,7 +325,7 @@ const closeEvent = await Rolla.show(
     refreshToken: 'optional-refresh-token',
     tokenExpiresIn: 3600,
     partnerId: 'your-partner-id',
-    environment: 'production', // 'production' | 'rnd'
+    environment: 'production', // 'production' | 'rnd' — optional, defaults to 'rnd'
     disabledModules: ['leaderboards'],
     disabledDataSources: ['oura'],
     language: 'german',
@@ -303,6 +356,23 @@ useEffect(() => {
 }, []);
 ```
 
+#### Tokens
+
+The SDK refreshes its access token by itself, but the Rolla auth API's refresh tokens are single-use, so your app keeps a few duties — the same ones the native docs spell out in [Token Management](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/ios/07-token-management.md#your-apps-responsibilities):
+
+1. Pass all three of `token`, `refreshToken` and `tokenExpiresIn` in every configuration, always the newest pair you have stored.
+2. Persist the pair delivered by `onTokenRefreshed` — it replaces every pair stored before it, including the login response.
+3. Answer `onTokenExpired` by obtaining a fresh pair (re-authenticate through `/api/login`, directly or via your backend) and pushing it with `Rolla.updateToken(...)`; the SDK holds the failing request for about 10 seconds and recovers in place.
+4. Never spend the SDK's refresh token yourself — whichever side refreshes first invalidates it for the other.
+5. `updateToken()` and `clearSession()` need a running engine (any earlier `show()`, `openScreen()`, `warmUpEngine()` or headless call). On a cold engine `updateToken()` rejects with `NO_ACTIVE_SESSION` — put the newest pair in your next configuration instead; `clearSession(config)` warms the engine for you.
+
+#### Logout
+
+```ts
+await Rolla.clearSession(config); // purges the SDK's stored tokens and session data; warms the engine first if needed
+await Rolla.destroyEngine();      // only after the clear has resolved — destroying first cancels the pending clear
+```
+
 `Rolla.show()` rejects when the SDK UI could not be presented; the error carries a `code`:
 
 ```ts
@@ -326,7 +396,7 @@ Every value below is passed to the native SDK verbatim. Unset optional fields ke
 | `tokenExpiresIn` | `number` | Seconds until `token` expires. |
 | `userId` | `string` | Namespaces persisted SDK data per user on shared devices. |
 | `partnerId` | `string` | Required. |
-| `environment` | `'production' \| 'rnd'` | Required. Match the environment your token was issued for. |
+| `environment` | `'production' \| 'rnd'` | Optional, default `'rnd'`. Match the environment your token was issued for. |
 | `disabledModules` | `RollaDisabledModule[]` | `'bloodPressure' \| 'insights' \| 'leaderboards' \| 'weight'` — hidden everywhere in the SDK UI. |
 | `disabledDataSources` | `RollaDataSource[]` | `'band' \| 'garmin' \| 'oura' \| 'appleHealth' \| 'healthConnect'` — no longer offered for new connections; an already-connected source still renders. |
 | `language` | `RollaLanguage` | `'english' \| 'german' \| 'spanish' \| 'croatian' \| 'bosnian' \| 'serbianLatin' \| 'serbianCyrillic' \| 'arabic'`. When set, it overrides the user's profile language for the engine's lifetime. |
@@ -353,13 +423,109 @@ A value the SDK does not know — a misspelled module name, an unparsable color,
 | --- | --- |
 | `Rolla.show(config, options?)` | Presents the SDK UI. Resolves with `{ reason, detail? }` when it is dismissed; rejects with `{ code, message }` when it could not be presented. |
 | `Rolla.dismiss()` | Programmatically close the SDK UI. |
-| `Rolla.updateToken(token, refreshToken?, expiresIn?)` | Push fresh credentials after an `onTokenExpired` event. |
-| `Rolla.clearSession()` | Purge persisted tokens. Safe to call when no session is active. |
+| `Rolla.updateToken(token, refreshToken?, expiresIn?)` | Push fresh credentials — the answer to `onTokenExpired`, or a proactive push. Needs a running engine (`NO_ACTIVE_SESSION` otherwise); an older pair than the SDK holds is ignored and still resolves. |
+| `Rolla.clearSession(config?)` | Purge persisted tokens and session data on logout. With `config`, warms the engine first when none is running; without it, a cold engine rejects with `NO_ACTIVE_SESSION`. Call `destroyEngine()` after it resolves. |
 | `Rolla.destroyEngine()` | Tear down the embedded Flutter engine to reclaim memory. Call it after changing the configuration, otherwise the cached engine keeps the old one. |
 | `Rolla.isPresenting()` | `true` while the SDK UI is on-screen. |
-| `Rolla.getNativeSdkVersion()` | The native SDK version this package links — equal to the package version. |
-| `Rolla.addListener(event, fn)` | Subscribe to `'onClose' \| 'onError' \| 'onTokenRefreshed' \| 'onTokenExpired'`. |
+| `Rolla.getNativeSdkVersion()` | The native SDK version this package links (`nativeSdkVersion` in `package.json`, see [Versioning](#versioning)). |
+| `Rolla.warmUpEngine(config)` | Starts and configures the engine ahead of time without presenting any UI, so the first `show()` presents instantly. Optional and safe to call repeatedly. |
+| `Rolla.syncHealthData(config, { includeSamples? })` | Headless sync of the user's primary data source. Resolves with a `RollaSyncResult` — see [Headless calls](#headless-calls). |
+| `Rolla.getBandBatteryLevel(config)` | Live BLE read of the paired band's battery. Resolves with `{ status, level? }`. |
+| `Rolla.getPairedBandInfo(config)` | Whether the account has a band paired, no Bluetooth involved. Resolves with `{ status, band? }`. |
+| `Rolla.openScreen(config, screen, options?)` | Opens the SDK UI directly on a screen. Resolves with a `RollaOpenScreenStatus` — see [Opening a screen](#opening-a-screen). |
+| `Rolla.getInitialNotificationTarget()` | The Rolla notification tap that launched or resumed the app, or `null`. Clears on read — see [Notification taps](#notification-taps). |
+| `Rolla.notificationTarget(payload)` | Resolves a notification payload your own notification handling received; `null` when it is not Rolla's. |
+| `Rolla.addListener(event, fn)` | Subscribe to any event in the table below. |
 | `Rolla.removeAllListeners()` | Hard reset all subscriptions (useful between screens in tests). |
+
+Every entry point takes the configuration it runs under, exactly as a native host builds a `Rolla(configuration)` per call. The SDK engine itself is process-wide: the first call starts it, later calls reuse it, and `destroyEngine()` is how a changed configuration takes effect.
+
+### Headless calls
+
+`syncHealthData`, `getBandBatteryLevel` and `getPairedBandInfo` run without presenting any UI. They resolve with the SDK's typed result — including the "could not run" cases — and reject only on a transport failure (the engine not starting, an SDK `RollaError`).
+
+```ts
+const result = await Rolla.syncHealthData(config, { includeSamples: false });
+switch (result.outcome) {
+  case 'success':
+  case 'partial':
+    console.log('synced', result.source, result.syncedData?.syncedDates);
+    break;
+  case 'skipped':
+    // The host owns permissions and the SDK cannot prompt headlessly:
+    // 'noBandPaired' | 'bandNotConnected' | 'bluetoothPermissionRequired' |
+    // 'appleHealthPermissionRequired' | 'healthConnectPermissionRequired' | …
+    console.log('skipped because', result.skipReason);
+    break;
+  case 'failure':
+    console.warn(result.error);
+    break;
+}
+
+const battery = await Rolla.getBandBatteryLevel(config);
+// battery.status: 'available' | 'noBandPaired' | 'bandNotConnected' | 'notRollaDevice'
+//               | 'bluetoothUnavailable' | 'bluetoothPermissionRequired' | 'unknownError' | 'unknown'
+// battery.level only for 'available'
+
+const paired = await Rolla.getPairedBandInfo(config);
+// paired.status: 'bandPaired' | 'noBandPaired' | 'unknown'; paired.band only for 'bandPaired'
+```
+
+The same `RollaSyncResult` is also delivered to `onSyncHealthDataCompleted` listeners.
+
+### Opening a screen
+
+```ts
+const status = await Rolla.openScreen(config, 'goals', { transition: 'fade' });
+// 'opened' | 'notInitialized' | 'screenDisabled' | 'blockedByGate'
+// | 'uiUnavailable' | 'superseded' | 'unknownError'
+```
+
+Screens: `'home' | 'activityHistory' | 'goals' | 'insights' | 'resume'`. The SDK UI is presented first when needed; an already-presented UI navigates in place. The opened screen becomes the SDK's root, so back returns to your app. Close events arrive through `onClose`, exactly like a `show()`.
+
+What happens when the SDK UI is hidden depends on the engine. On a **warm** engine (after any earlier `show()`, `warmUpEngine()` or headless call) the SDK navigates first and presents only when the status is `'opened'`; every other status leaves it hidden and tells you why. On a **cold** engine it has to present before it can navigate, so it opens behind its loader and a failure such as `'screenDisabled'` leaves it on Home. Call `warmUpEngine(config)` right after login to avoid the cold path. Status meanings and the per-screen rules: [Host-Driven Navigation](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/ios/10-api-reference.md#host-driven-navigation) (iOS) / [Android](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/android/08-api-reference.md#host-driven-navigation).
+
+### Notification taps
+
+The SDK posts its own notifications (workout in progress, reminders). A tap resolves to a `RollaNotificationTarget` — `{ kind: 'screen', screen }` to route with `openScreen()`, or `{ kind: 'appSettings' }` to send the user to the OS app settings.
+
+- **While the app is running**, taps arrive as the `onNotificationTap` event.
+- **When a tap launches the app** (or resumes it before your listeners are attached), call `Rolla.getInitialNotificationTarget()` once a user session exists and route the result. It clears on read.
+
+Android resolves the launching intent natively; nothing to add. On iOS the SDK never claims the notification-center delegate, so forward taps from your `AppDelegate`:
+
+```swift
+import RollaWrapper
+import UserNotifications
+
+// In application(_:didFinishLaunchingWithOptions:):
+UNUserNotificationCenter.current().delegate = self
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    // Returns false for notifications that are not Rolla's — handle those yourself.
+    _ = RollaBridgeNotifications.handle(response: response)
+    completionHandler()
+  }
+}
+```
+
+If a push library already owns the delegate, hand it the notification's user-info dictionary instead: `Rolla.notificationTarget(userInfo)` on iOS, or `Rolla.notificationTarget({ payload })` with the intent's `payload` string extra on Android.
+
+The notifications the SDK posts, and where a tap leads (the destination is a recommendation — route it however suits your app):
+
+| Notification | Posted when | Tap resolves to |
+| --- | --- | --- |
+| Background tracking disabled | The SDK UI leaves the foreground mid-workout and *Always* location is missing | `{ kind: 'appSettings' }` |
+| Stay on track (inactivity reminder) | Two calendar days after the SDK was last opened, at 10:00 | `{ kind: 'screen', screen: 'insights' }`, or `'home'` when insights are disabled |
+| Battery low | At most once a day when the band is at 20% or heading there | `{ kind: 'screen', screen: 'home' }` |
+| Workout in progress / Location Tracking (Android only, the foreground-service notifications) | For the whole of a Bluetooth or GPS workout | `{ kind: 'screen', screen: 'resume' }` |
+
+Do not present the SDK from the notification handler itself: a reminder tap usually cold-launches the app before your session exists, so keep the screen aside and route it once the user is signed in — the demo's `App.tsx` shows the pattern. Full native details, including the Android `launchMode` discussion summarized in [step 4](#4-android--register-the-three-maven-repositories): [iOS notificationTarget](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/ios/10-api-reference.md#notificationtarget) / [Android notificationTarget](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/android/08-api-reference.md#notificationtarget).
 
 ### Events
 
@@ -369,6 +535,18 @@ A value the SDK does not know — a misspelled module name, an unparsable color,
 | `onError` | `{ code: string; message: string; presentationFailed: boolean }` — `presentationFailed` is `true` when the error ended a pending `show()` (no `onClose` follows and that `show()` rejects), `false` for errors raised while the SDK UI is running. |
 | `onTokenRefreshed` | `{ token: string; refreshToken?: string; expiresIn?: number }` — store the rotated pair; refresh tokens are single-use. |
 | `onTokenExpired` | `{}` — call `Rolla.updateToken(...)` from your handler with new credentials. |
+| `onSyncHealthDataCompleted` | `RollaSyncResult` — a headless `syncHealthData()` finished. |
+| `onUiSyncCompleted` | `RollaSyncResult` — a sync run by the SDK UI finished. |
+| `onActivityStarted` | `{ activityId, type?, startTime?, origin, catalogId? }` — `origin` is `'fresh'` or `'crashRecovery'`. |
+| `onActivityCompleted` | `{ activityId, phase, source, type?, totalDurationS?, totalDistanceM?, totalCalories?, startTime?, endTime?, … }` — fires once per `phase`: `'finished'`, then `'uploaded'` or `'uploadFailed'`. |
+| `onActivityRemoved` | `{ activityId, reason }` — `'canceled'` or `'deleted'`. |
+| `onBandPaired` / `onBandUnpaired` / `onBandConnected` / `onBandDisconnected` | `RollaBandInfo` — `{ macAddress, name?, rssi?, deviceType?, batteryPercent?, firmwareVersion?, serialNumber? }`. |
+| `onPrimarySourceChanged` | `{ previousSource, currentSource }` — `RollaSyncSource` values. |
+| `onGoalsChanged` | `{ changedGoals, enabledGoals }` — arrays of `{ id, name, enabled }`. |
+| `onProfileUpdated` | `{ changedFields }` — the profile fields the user changed, keyed by name. |
+| `onNotificationTap` | `RollaNotificationTarget` — see [Notification taps](#notification-taps). |
+
+Dates in payloads are ISO-8601 strings; sample timestamps inside `syncedData.samples` are epoch milliseconds. The observational events are engine-scoped: they keep flowing after the SDK UI closes, for as long as the engine lives, and are delivered to whichever listeners are attached at that moment.
 
 ---
 
@@ -379,6 +557,7 @@ A value the SDK does not know — a misspelled module name, an unparsable color,
 - **`use_frameworks!` is mandatory.** The underlying `RollaSDK` pod vendors more than two dozen pre-built `.xcframework` bundles (Flutter engine, Mapbox SDK, plugins). You must use `:linkage => :static` to keep static-linked RN pods working. Flipper does not support framework linkage and must be disabled via `ENV['NO_FLIPPER'] = '1'`.
 - **`ENABLE_USER_SCRIPT_SANDBOXING` must be `NO`.** Xcode 15+ defaults this on, and it breaks CocoaPods' resource-copy scripts for vendored xcframeworks. The Installation Podfile snippet above includes the post-install hook that turns it off.
 - **Force `ZIPFoundation` to a dynamic framework + pin its iOS deployment target to 14.0.** `NordicDFU.xcframework` (vendored by `RollaSDK`) was pre-built linking `ZIPFoundation` as a dynamic dependency at iOS 14.0. Both the `pre_install` hook (forcing dynamic build type) and the `post_install` hook (`IPHONEOS_DEPLOYMENT_TARGET = '14.0'` on ZIPFoundation) are included in the Installation Podfile snippet above — without both, you get either `dyld: Library not loaded: @rpath/ZIPFoundation.framework/ZIPFoundation` at launch or `compiling for iOS 14.0, but module 'ZIPFoundation' has a minimum deployment target of iOS 15.1` at build.
+- **Call `show()` / `openScreen()` from a settled screen.** The SDK UI is presented on top of the frontmost view controller. If the call is triggered from inside a React Native `Modal` (a bottom sheet, a picker) that is closing at the same time, the SDK gets presented on that modal's view controller and is dismissed together with it — the call appears to do nothing, or closes immediately with `hostModalDismiss`. Wait for the modal's `onDismiss` (iOS) before calling; Android's `Modal` is a dialog window and is not affected.
 - **`.xcode.env.local` should point at an absolute `node` path.** Xcode's script-phase shell does not source your interactive PATH, so `command -v node` returns empty and Hermes' replace-config script fails with `: command not found`. Put `export NODE_BINARY=/opt/homebrew/bin/node` (or your equivalent) in `ios/.xcode.env.local`, which is gitignored by the RN template.
 
 ### Android
@@ -390,6 +569,12 @@ A value the SDK does not know — a misspelled module name, an unparsable color,
 - **Bumping the native version requires `./gradlew --refresh-dependencies`.** Gradle caches stale Mapbox metadata across SDK bumps; this cannot be fixed CI-side.
 - **`minSdk` must be `26` or higher.** RollaSDK uses Bluetooth Low Energy + foreground services that require API 26+.
 - **Core library desugaring is mandatory.** The native SDK uses `java.time` APIs that aren't in API 26 by default. See the Installation section above for the exact `build.gradle` block.
+
+### Debug logs for support tickets
+
+- iOS: the SDK logs through the unified logging system under subsystem `app.rolla.rollaV2` — filter Console.app by it, or `log stream --device --predicate 'subsystem == "app.rolla.rollaV2"' --level info`.
+- Android: `adb logcat -s RollaEngineManager:* RollaSdkPlugin:* Flutter:*`.
+- Attach the filtered log to your ticket. More symptoms and remedies: [iOS Troubleshooting](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/ios/11-troubleshooting.md) / [Android Troubleshooting](https://github.com/Rolla-Health-Fitness/rolla-sdk-documentation/blob/release/0.1.15/android/09-troubleshooting.md).
 
 ### Cross-platform
 

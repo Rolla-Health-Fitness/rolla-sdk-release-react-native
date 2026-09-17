@@ -1,6 +1,6 @@
 {
   "name": "@rolla-health/react-native-sdk",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "nativeSdkVersion": "0.1.15",
   "description": "React Native wrapper for the Rolla SDK",
   "main": "./lib/module/index.js",

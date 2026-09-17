@@ -87,8 +87,9 @@ function toNotificationTarget(native: Object): RollaNotificationTarget | null {
  * host builds a `Rolla(configuration)` per call; the SDK engine itself is
  * process-wide and shared by all of them.
  *
- * The package version equals the native SDK version it pins (iOS pod
- * `RollaSDK` and Android `com.rolla.sdk:android_release`) — see README.md.
+ * The native SDK version this package pins (iOS pod `RollaSDK` and Android
+ * `com.rolla.sdk:android_release`) is `nativeSdkVersion` in package.json —
+ * see README.md → Versioning.
  */
 export class Rolla {
   private static _emitter: NativeEventEmitter | null = null;
@@ -172,6 +173,15 @@ export class Rolla {
     return NativeRollaWrapper.dismiss();
   }
 
+  /**
+   * Pushes fresh credentials to the running engine — the answer to
+   * `onTokenExpired`, or a proactive push after your app refreshed outside
+   * the SDK. Needs an engine that an earlier call started (`show()`,
+   * `openScreen()`, `warmUpEngine()` or a headless method); on a cold engine
+   * it rejects with `NO_ACTIVE_SESSION` — pass the newest pair in your next
+   * configuration instead. A pair older than the one the SDK holds is ignored
+   * by design and still resolves.
+   */
   static updateToken(
     token: string,
     refreshToken?: string,
@@ -184,8 +194,18 @@ export class Rolla {
     );
   }
 
-  static clearSession(): Promise<void> {
-    return NativeRollaWrapper.clearSession();
+  /**
+   * Purges the SDK's persisted tokens and session data — call it on logout,
+   * then `destroyEngine()` once it has resolved. The native clear needs a
+   * running engine: pass the current configuration and the wrapper warms the
+   * engine first when none is running (the SDK's documented recipe). Without a
+   * configuration, a cold engine rejects with `NO_ACTIVE_SESSION` rather than
+   * reporting a clear that never happened.
+   */
+  static clearSession(config?: RollaConfiguration): Promise<void> {
+    return NativeRollaWrapper.clearSession(
+      (config as unknown as Object | undefined) ?? null
+    );
   }
 
   /**
@@ -202,8 +222,8 @@ export class Rolla {
   }
 
   /**
-   * The native SDK version this package links — equal to the package version
-   * (lockstep). Resolving proves the TurboModule is wired up.
+   * The native SDK version this package links (`nativeSdkVersion` in
+   * package.json). Resolving proves the TurboModule is wired up.
    */
   static getNativeSdkVersion(): Promise<string> {
     return NativeRollaWrapper.getNativeSdkVersion();

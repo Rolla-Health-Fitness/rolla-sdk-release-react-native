@@ -20,7 +20,12 @@ export interface Spec extends TurboModule {
     refreshToken: string | null,
     expiresIn: number | null
   ): Promise<void>;
-  clearSession(): Promise<void>;
+  /**
+   * `config` warms the engine first when none is running (the SDK's
+   * documented logout recipe); `null` on a cold engine rejects with
+   * `NO_ACTIVE_SESSION`.
+   */
+  clearSession(config: Object | null): Promise<void>;
   destroyEngine(): Promise<void>;
   isPresenting(): Promise<boolean>;
   getNativeSdkVersion(): Promise<string>;

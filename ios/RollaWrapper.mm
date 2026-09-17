@@ -177,9 +177,9 @@ static void RollaReject(RCTPromiseRejectBlock reject, NSError *error, NSString *
     [self.rollaBridge updateToken:token
                 refreshToken:refreshToken
                    expiresIn:expiresIn
-                  completion:^(NSString *_Nullable err) {
-      if (err != nil) {
-        reject(@"UPDATE_TOKEN_FAILED", err, nil);
+                  completion:^(NSError *_Nullable error) {
+      if (error != nil) {
+        RollaReject(reject, error, @"UPDATE_TOKEN_FAILED");
       } else {
         resolve(nil);
       }
@@ -187,13 +187,15 @@ static void RollaReject(RCTPromiseRejectBlock reject, NSError *error, NSString *
   });
 }
 
-- (void)clearSession:(RCTPromiseResolveBlock)resolve
+- (void)clearSession:(NSDictionary *)config
+             resolve:(RCTPromiseResolveBlock)resolve
               reject:(RCTPromiseRejectBlock)reject
 {
   dispatch_async(dispatch_get_main_queue(), ^{
-    [self.rollaBridge clearSessionWithCompletion:^(NSString *_Nullable err) {
-      if (err != nil) {
-        reject(@"CLEAR_SESSION_FAILED", err, nil);
+    [self.rollaBridge clearSessionWithConfig:config
+                                  completion:^(NSError *_Nullable error) {
+      if (error != nil) {
+        RollaReject(reject, error, @"CLEAR_SESSION_FAILED");
       } else {
         resolve(nil);
       }

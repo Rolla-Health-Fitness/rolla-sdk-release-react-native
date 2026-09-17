@@ -78,6 +78,7 @@ jest.mock('react-native', () => {
 type MockedReactNative = {
   __native: {
     show: jest.Mock;
+    clearSession: jest.Mock;
     syncHealthData: jest.Mock;
     openScreen: jest.Mock;
     getInitialNotificationTarget: jest.Mock;
@@ -95,6 +96,12 @@ const CONFIG: RollaConfiguration = {
   token: 'token',
   partnerId: 'partner',
   environment: 'rnd',
+};
+
+/** `environment` is optional and defaults to `rnd` natively, like the SDK. */
+const MINIMAL_CONFIG: RollaConfiguration = {
+  token: 'token',
+  partnerId: 'partner',
 };
 
 const CLOSE: RollaCloseEvent = { reason: 'programmatic' };
@@ -218,6 +225,38 @@ describe('Rolla.show()', () => {
     await flush();
     rn.__emit('onClose', CLOSE);
     await expect(next).resolves.toEqual(CLOSE);
+  });
+});
+
+describe('session', () => {
+  it('accepts a configuration without environment (native defaults to rnd)', async () => {
+    const pending = Rolla.show(MINIMAL_CONFIG);
+    await flush();
+    rn.__emit('onClose', CLOSE);
+    await expect(pending).resolves.toEqual(CLOSE);
+    expect(rn.__native.show).toHaveBeenLastCalledWith(
+      MINIMAL_CONFIG,
+      'default'
+    );
+  });
+
+  it('clears the session against the running engine, or warms one up from the given configuration', async () => {
+    await Rolla.clearSession();
+    expect(rn.__native.clearSession).toHaveBeenLastCalledWith(null);
+
+    await Rolla.clearSession(CONFIG);
+    expect(rn.__native.clearSession).toHaveBeenLastCalledWith(CONFIG);
+  });
+
+  it('surfaces the native NO_ACTIVE_SESSION rejection of a cold clearSession()', async () => {
+    rn.__native.clearSession.mockRejectedValueOnce(
+      Object.assign(new Error('clearSession needs a running engine'), {
+        code: 'NO_ACTIVE_SESSION',
+      })
+    );
+    await expect(Rolla.clearSession()).rejects.toMatchObject({
+      code: 'NO_ACTIVE_SESSION',
+    });
   });
 });
 

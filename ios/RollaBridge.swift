@@ -42,6 +42,15 @@ struct RollaBridgeError: CustomNSError, LocalizedError {
     RollaBridgeError(code: "INVALID_CONFIG", message: message)
   }
 
+  /// A call that needs a running engine was made while no engine has been
+  /// started in this process (or after `destroyEngine()`).
+  static func noActiveSession(_ method: String) -> RollaBridgeError {
+    RollaBridgeError(
+      code: "NO_ACTIVE_SESSION",
+      message: "\(method) needs a running engine: call show(), openScreen(), warmUpEngine() or a headless method first."
+    )
+  }
+
   /// The SDK's own error, carrying its `RollaError.code` as the JS rejection code.
   static func sdk(_ error: RollaError) -> RollaBridgeError {
     RollaBridgeError(code: error.code, message: error.errorDescription ?? "An unknown error occurred.")
@@ -67,7 +76,9 @@ public class RollaBridge: NSObject {
 
   /// The most recently created instance — the target of `dismiss`,
   /// `updateToken` and `clearSession`, exactly like a native host that keeps
-  /// its latest `Rolla`.
+  /// its latest `Rolla`. It outlives the SDK UI: the engine keeps running after
+  /// a close, so token pushes and session clears must keep working until
+  /// `destroyEngine()` tears the engine down (which is when this becomes nil).
   private var rolla: Rolla?
 
   // MARK: - Presentation
@@ -101,15 +112,20 @@ public class RollaBridge: NSObject {
     rolla?.dismiss()
   }
 
-  /// - Parameter completion: called with `nil` on success, error message on failure.
+  /// Pushes fresh credentials to the running engine. Like the native SDK, this
+  /// needs an engine that some earlier call started; on a cold engine the
+  /// caller should pass the newest pair in its next configuration instead.
+  /// - Parameter completion: `nil` on success, otherwise an `NSError` carrying
+  ///   the JS rejection code in `userInfo["code"]` (`NO_ACTIVE_SESSION` when
+  ///   the engine is cold, the SDK's `RollaError.code` otherwise).
   @objc public func updateToken(
     _ token: String,
     refreshToken: String?,
     expiresIn: NSNumber?,
-    completion: @escaping (String?) -> Void
+    completion: @escaping (NSError?) -> Void
   ) {
     guard let rolla else {
-      completion("No active Rolla session.")
+      completion(RollaBridgeError.noActiveSession("updateToken") as NSError)
       return
     }
     rolla.updateToken(
@@ -118,22 +134,50 @@ public class RollaBridge: NSObject {
       expiresIn: expiresIn?.doubleValue
     ) { result in
       switch result {
-      case .success:           completion(nil)
-      case .failure(let err):  completion(err.localizedDescription)
+      case .success:            completion(nil)
+      case .failure(let error): completion(RollaBridgeError.sdk(error) as NSError)
       }
     }
   }
 
-  /// - Parameter completion: called with `nil` on success, error message on failure.
-  @objc public func clearSession(completion: @escaping (String?) -> Void) {
-    guard let rolla else {
-      completion(nil)
+  /// Purges the SDK's persisted session. The native call needs a running
+  /// engine, so on a cold engine the SDK's documented recipe is "warm up,
+  /// then clear": when `config` is given the bridge does exactly that; without
+  /// it a cold engine is reported as `NO_ACTIVE_SESSION` instead of being
+  /// mistaken for a successful clear.
+  /// - Parameter completion: `nil` on success, otherwise an `NSError` carrying
+  ///   the JS rejection code in `userInfo["code"]`.
+  @objc public func clearSession(
+    config: [String: Any]?,
+    completion: @escaping (NSError?) -> Void
+  ) {
+    if let rolla {
+      rolla.clearSession { result in
+        switch result {
+        case .success:            completion(nil)
+        case .failure(let error): completion(RollaBridgeError.sdk(error) as NSError)
+        }
+      }
       return
     }
-    rolla.clearSession { result in
-      switch result {
-      case .success:           completion(nil)
-      case .failure(let err):  completion(err.localizedDescription)
+    guard let config else {
+      completion(RollaBridgeError.noActiveSession("clearSession") as NSError)
+      return
+    }
+    warmUpEngine(config: config) { [weak self] error in
+      if let error {
+        completion(error)
+        return
+      }
+      guard let self, let rolla = self.rolla else {
+        completion(RollaBridgeError.noActiveSession("clearSession") as NSError)
+        return
+      }
+      rolla.clearSession { result in
+        switch result {
+        case .success:            completion(nil)
+        case .failure(let error): completion(RollaBridgeError.sdk(error) as NSError)
+        }
       }
     }
   }
@@ -281,9 +325,8 @@ public class RollaBridge: NSObject {
 extension RollaBridge: RollaDelegate {
 
   public func rollaDidClose(_ rolla: Rolla, reason: RollaCloseReason) {
-    if self.rolla === rolla {
-      self.rolla = nil
-    }
+    // The instance is kept: the engine survives the close, and token pushes,
+    // session clears and the observational events all continue against it.
     let key: String
     var detail: String?
     switch reason {
@@ -311,9 +354,6 @@ extension RollaBridge: RollaDelegate {
     var presentationFailed = !rolla.isPresenting
     if case .alreadyPresenting = error {
       presentationFailed = true
-    }
-    if presentationFailed, self.rolla === rolla {
-      self.rolla = nil
     }
     listener?.rollaBridgeDidFail(
       code: error.code,

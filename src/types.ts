@@ -119,7 +119,8 @@ export interface RollaConfiguration {
   tokenExpiresIn?: number;
   userId?: string;
   partnerId: string;
-  environment: RollaEnvironment;
+  /** Target environment. Unset defaults to `'rnd'`, like the native SDK. */
+  environment?: RollaEnvironment;
   /** Modules to disable everywhere in the SDK UI. Unset disables nothing. */
   disabledModules?: RollaDisabledModule[];
   /** Data sources to stop offering for new connections. Unset offers every source. */

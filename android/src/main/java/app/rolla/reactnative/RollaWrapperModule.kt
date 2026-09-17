@@ -57,7 +57,9 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
     /**
      * The most recently created instance — the target of `dismiss`,
      * `updateToken` and `clearSession`, exactly like a native host that keeps
-     * its latest `Rolla`.
+     * its latest `Rolla`. It outlives the SDK UI: the engine keeps running
+     * after a close, so token pushes and session clears must keep working
+     * until `destroyEngine()` tears the engine down (which nulls this).
      */
     private var rolla: Rolla? = null
 
@@ -141,7 +143,7 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         UiThreadUtil.runOnUiThread {
             val current = rolla
             if (current == null) {
-                promise.reject("NO_ACTIVE_SESSION", "updateToken called with no active Rolla session.")
+                promise.reject("NO_ACTIVE_SESSION", noActiveSessionMessage("updateToken"))
                 return@runOnUiThread
             }
             current.updateToken(
@@ -155,16 +157,36 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    override fun clearSession(promise: Promise) {
+    /**
+     * Purges the SDK's persisted session. The native call needs a running
+     * engine, so on a cold engine the SDK's documented recipe is "warm up,
+     * then clear": with a `config` this does exactly that; without one a cold
+     * engine is reported as `NO_ACTIVE_SESSION` instead of being mistaken for
+     * a successful clear.
+     */
+    override fun clearSession(config: ReadableMap?, promise: Promise) {
         UiThreadUtil.runOnUiThread {
             val current = rolla
-            if (current == null) {
-                promise.resolve(null)
+            if (current != null) {
+                current.clearSession { result ->
+                    result.onSuccess { promise.resolve(null) }
+                        .onFailure { promise.reject("CLEAR_SESSION_FAILED", it.message, it) }
+                }
                 return@runOnUiThread
             }
-            current.clearSession { result ->
-                result.onSuccess { promise.resolve(null) }
-                    .onFailure { promise.reject("CLEAR_SESSION_FAILED", it.message, it) }
+            if (config == null) {
+                promise.reject("NO_ACTIVE_SESSION", noActiveSessionMessage("clearSession"))
+                return@runOnUiThread
+            }
+            val instance = makeInstanceOrReject(config, promise) ?: return@runOnUiThread
+            instance.warmUpEngine(reactApplicationContext) { warmUp ->
+                warmUp.onFailure { promise.rejectSdk(it) }
+                    .onSuccess {
+                        instance.clearSession { result ->
+                            result.onSuccess { promise.resolve(null) }
+                                .onFailure { promise.reject("CLEAR_SESSION_FAILED", it.message, it) }
+                        }
+                    }
             }
         }
     }
@@ -327,6 +349,9 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         null
     }
 
+    private fun noActiveSessionMessage(method: String): String =
+        "$method needs a running engine: call show(), openScreen(), warmUpEngine() or a headless method first."
+
     /** Rejects with the SDK's own error code; anything else is `UNKNOWN`. */
     private fun Promise.rejectSdk(error: Throwable) {
         val code = (error as? RollaError)?.code ?: "UNKNOWN"
@@ -342,9 +367,9 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
     private inner class RollaListenerAdapter : RollaListener {
 
         override fun onRollaClosed(rolla: Rolla, reason: RollaCloseReason) {
-            if (this@RollaWrapperModule.rolla === rolla) {
-                this@RollaWrapperModule.rolla = null
-            }
+            // The instance is kept: the engine survives the close, and token
+            // pushes, session clears and the observational events all continue
+            // against it.
             emit("onClose", encodeReason(reason))
         }
 
@@ -355,9 +380,6 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
             // AlreadyPresenting is the one failure that leaves the flag true
             // for the *other* presentation, so it is special-cased.
             val presentationFailed = !rolla.isPresenting || error is RollaError.AlreadyPresenting
-            if (presentationFailed && this@RollaWrapperModule.rolla === rolla) {
-                this@RollaWrapperModule.rolla = null
-            }
             val payload = Arguments.createMap().apply {
                 putString("code", error.code)
                 putString("message", error.message)

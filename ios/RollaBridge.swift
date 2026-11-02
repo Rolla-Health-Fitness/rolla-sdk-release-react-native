@@ -121,7 +121,14 @@ public class RollaBridge: NSObject {
   }
 
   @objc public func dismiss() {
-    presentingInstances.forEach { $0.dismiss() }
+    // The latest instance too, for a presentation that started while an
+    // earlier one was still closing; on an instance that does not hold the
+    // UI the SDK's `dismiss()` is a no-op.
+    var targets = presentingInstances
+    if let rolla, !targets.contains(where: { $0 === rolla }) {
+      targets.append(rolla)
+    }
+    targets.forEach { $0.dismiss() }
   }
 
   /// Pushes fresh credentials to the running engine. Like the native SDK, this

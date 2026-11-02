@@ -98,9 +98,6 @@ target 'YourApp' do
   )
 
   post_install do |installer|
-    # Also raises every pod to React Native's 15.1 floor — including
-    # ZIPFoundation, which declares iOS 12.0 and which Xcode 27 refuses to
-    # build below 15.0.
     react_native_post_install(installer, config[:reactNativePath], :mac_catalyst_enabled => false)
 
     installer.pods_project.targets.each do |target|
@@ -108,6 +105,13 @@ target 'YourApp' do
         # Xcode 15+ ships User Script Sandboxing on by default. CocoaPods'
         # resource-copy scripts for vendored xcframeworks need it off.
         c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+
+        # Xcode 27 builds nothing below iOS 15.0. react_native_post_install
+        # raises the pods to 15.1 but not their resource bundles, and the
+        # privacy bundles of ZIPFoundation and NordicDFU declare iOS 12.0.
+        if c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < 15.1
+          c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
+        end
       end
     end
   end
@@ -115,7 +119,7 @@ end
 ```
 
 > [!NOTE]
-> **Upgrading from 0.1.16?** Delete the ZIPFoundation `pre_install` hook (the one forcing a dynamic framework) and the `IPHONEOS_DEPLOYMENT_TARGET = '14.0'` override for ZIPFoundation in `post_install`. From 0.2.0 on, `NordicDFU` and `ZIPFoundation` install from source and compile at your project's deployment target, so the workarounds are no longer needed — and Xcode 27 refuses the iOS 14.0 pin.
+> **Upgrading from 0.1.16?** Delete the ZIPFoundation `pre_install` hook (the one forcing a dynamic framework) and the `IPHONEOS_DEPLOYMENT_TARGET = '14.0'` override for ZIPFoundation in `post_install`, and add the raise to 15.1 shown above. From 0.2.0 on, `NordicDFU` and `ZIPFoundation` install from source and compile at your project's deployment target, so the workarounds are no longer needed — and Xcode 27 refuses the iOS 14.0 pin.
 
 Then:
 
@@ -578,7 +582,7 @@ Dates in payloads are ISO-8601 strings; sample timestamps inside `syncedData.sam
 
 - **`use_frameworks!` is mandatory.** The underlying `RollaSDK` pod vendors more than two dozen pre-built `.xcframework` bundles (Flutter engine, Mapbox SDK, plugins). You must use `:linkage => :static` to keep static-linked RN pods working. Flipper does not support framework linkage and must be disabled via `ENV['NO_FLIPPER'] = '1'`.
 - **`ENABLE_USER_SCRIPT_SANDBOXING` must be `NO`.** Xcode 15+ defaults this on, and it breaks CocoaPods' resource-copy scripts for vendored xcframeworks. The Installation Podfile snippet above includes the post-install hook that turns it off.
-- **Delete the ZIPFoundation Podfile hooks when upgrading from 0.1.16.** Earlier versions needed a `pre_install` hook forcing `ZIPFoundation` into a dynamic framework and a `post_install` override pinning it to iOS 14.0. From 0.2.0 on, `NordicDFU` and `ZIPFoundation` install from source and compile at your deployment target, so neither hook is needed, and Xcode 27 refuses the 14.0 pin. `react_native_post_install` raises every pod to React Native's 15.1 floor.
+- **Delete the ZIPFoundation Podfile hooks when upgrading from 0.1.16.** Earlier versions needed a `pre_install` hook forcing `ZIPFoundation` into a dynamic framework and a `post_install` override pinning it to iOS 14.0. From 0.2.0 on, `NordicDFU` and `ZIPFoundation` install from source and compile at your deployment target, so neither hook is needed, and Xcode 27 refuses the 14.0 pin. Keep the `post_install` loop that raises every target below 15.1: `react_native_post_install` raises the pods themselves but not their resource bundles, and Xcode 27 fails on the ZIPFoundation and NordicDFU privacy bundles, which declare iOS 12.0.
 - **Call `show()` / `openScreen()` from a settled screen.** The SDK UI is presented on top of the frontmost view controller. If the call is triggered from inside a React Native `Modal` (a bottom sheet, a picker) that is closing at the same time, the SDK gets presented on that modal's view controller and is dismissed together with it — the call appears to do nothing, or closes immediately with `hostModalDismiss`. Wait for the modal's `onDismiss` (iOS) before calling; Android's `Modal` is a dialog window and is not affected.
 - **`.xcode.env.local` should point at an absolute `node` path.** Xcode's script-phase shell does not source your interactive PATH, so `command -v node` returns empty and Hermes' replace-config script fails with `: command not found`. Put `export NODE_BINARY=/opt/homebrew/bin/node` (or your equivalent) in `ios/.xcode.env.local`, which is gitignored by the RN template.
 

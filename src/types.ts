@@ -14,12 +14,15 @@ export type RollaEnvironment = 'production' | 'rnd';
 
 /**
  * SDK modules that can be disabled everywhere in the SDK UI
- * (`RollaConfiguration.disabledModules`).
+ * (`RollaConfiguration.disabledModules`). Disabling `'nutrition'` also makes
+ * `Rolla.openScreen(config, 'nutrition')` resolve as `'screenDisabled'`.
  */
 export type RollaDisabledModule =
   | 'bloodPressure'
+  | 'groupActivities'
   | 'insights'
   | 'leaderboards'
+  | 'nutrition'
   | 'weight';
 
 /**
@@ -132,6 +135,15 @@ export interface RollaConfiguration {
   showOptionsButton?: boolean;
   /** Whether the SDK UI shows its goals section. Default `false`. */
   showGoalsSection?: boolean;
+  /**
+   * Custom URL scheme the Rolla backend redirects to at the end of the Garmin
+   * and Oura sign-in. Must match the `app_scheme` Rolla configures for your
+   * partner; on Android the same scheme must also be registered on
+   * `com.linusu.flutter_web_auth_2.CallbackActivity` in your app manifest.
+   * When set, those sign-ins run in an in-app session that returns to the app
+   * by itself. Unset keeps the external-browser flow.
+   */
+  oauthCallbackScheme?: string;
 }
 
 export interface RollaShowOptions {
@@ -186,7 +198,13 @@ export type RollaSyncSource =
   | 'oura'
   | 'unknown';
 
-/** Why a sync did not run. The host owns permissions and cannot prompt headlessly. */
+/**
+ * Why a sync did not run. The host owns permissions and cannot prompt
+ * headlessly. `'accessRequired'` is reported only to partners for whom Rolla
+ * has enabled access codes: the user's access is locked and nothing was
+ * synced (a lock the backend states after data landed makes the sync
+ * `'partial'` instead, with the lock as its `error`).
+ */
 export type RollaSyncSkipReason =
   | 'noBandPaired'
   | 'bandNotConnected'
@@ -198,7 +216,53 @@ export type RollaSyncSkipReason =
   | 'healthConnectPermissionRequired'
   | 'notInitialized'
   | 'offline'
+  | 'accessRequired'
   | 'unknown';
+
+/**
+ * A health-data stream a sync uploads. The values match the
+ * `RollaSyncedHealthData` field names, so a stream's summary is
+ * `syncedData[stream]`. A band sync attempts heart rate, HRV, steps and sleep;
+ * Apple Health and Health Connect attempt all seven.
+ */
+export type RollaSyncStream =
+  | 'heartRate'
+  | 'hrv'
+  | 'steps'
+  | 'sleep'
+  | 'weight'
+  | 'bloodPressure'
+  | 'workouts'
+  | 'unknown';
+
+/**
+ * What happened to one stream during a sync.
+ *  - `'uploaded'` — new data reached the server; its summary is in `syncedData`.
+ *  - `'noNewData'` — read, nothing new.
+ *  - `'failed'` — reading or uploading failed (see `error`); retried on the
+ *    next sync.
+ *  - `'permissionRequired'` — the stream needs a permission the app has not
+ *    granted (`error` names it). The SDK cannot prompt during a sync, and this
+ *    status does not change the sync's outcome on its own.
+ */
+export type RollaSyncStreamStatus =
+  | 'uploaded'
+  | 'noNewData'
+  | 'failed'
+  | 'permissionRequired'
+  | 'unknown';
+
+/** One stream's entry in `RollaSyncResult.streamResults`. */
+export interface RollaSyncStreamResult {
+  stream: RollaSyncStream;
+  status: RollaSyncStreamStatus;
+  /**
+   * Why the stream failed, or which permission it needs (`'failed'` and
+   * `'permissionRequired'` only). Diagnostic text — not user-facing, not
+   * stable, do not parse.
+   */
+  error?: string;
+}
 
 /** Per-stream summary of what a sync recorded. Timestamps are epoch milliseconds. */
 export interface RollaSyncedStreamSummary {
@@ -246,19 +310,41 @@ export interface RollaSyncedHealthData {
 /**
  * Terminal result of a sync — a headless `Rolla.syncHealthData()` or a sync
  * inside the SDK UI (`onUiSyncCompleted`). Dates are ISO-8601 strings.
+ *
+ * `'partial'` means at least one stream failed while new data still reached
+ * the server: the sync ran, `hasNewData` is `true` and `error` is the first
+ * failure. Treat it as a sync that ran, not as an error.
  */
 export interface RollaSyncResult {
   outcome: RollaSyncOutcome;
+  /** Whether the sync uploaded anything new. Meaningful for `'success'` and `'partial'`. */
   hasNewData: boolean;
   source: RollaSyncSource;
   startedAt?: string;
   lastSyncAt?: string;
   /** Present when `outcome` is `'skipped'`. */
   skipReason?: RollaSyncSkipReason;
-  /** Present when `outcome` is `'failure'`. */
+  /**
+   * Present when `outcome` is `'failure'` or `'partial'`. When streams failed,
+   * this is the first failed stream's error (each stream's own error is in
+   * `streamResults`), or the access lock (`access_required`) when the backend
+   * stated it mid-sync.
+   */
   error?: string;
-  /** Present on a successful band / Apple Health / Health Connect sync that recorded data. */
+  /**
+   * The health data this sync uploaded: per-stream summaries, plus raw samples
+   * with `includeSamples`. Present on `'success'` and `'partial'` band / Apple
+   * Health / Health Connect syncs that have something to report — a band
+   * success may carry only `batteryLevel` — and absent for `'skipped'` and
+   * `'failure'`, for Garmin / Oura, and for a sync that overlapped another one.
+   */
   syncedData?: RollaSyncedHealthData;
+  /**
+   * One entry per stream this sync attempted, in upload order. Empty when no
+   * stream ran: `'skipped'` results, a failure before any stream started, and
+   * Garmin / Oura refreshes. Complete even when `syncedData` is absent.
+   */
+  streamResults: RollaSyncStreamResult[];
 }
 
 export interface RollaSyncOptions {
@@ -373,12 +459,17 @@ export interface RollaPrimarySourceChanged {
 
 // Navigation and notifications
 
-/** SDK screens `Rolla.openScreen()` can open. `'resume'` presents the SDK as the user left it. */
+/**
+ * SDK screens `Rolla.openScreen()` can open. `'resume'` presents the SDK as the
+ * user left it. `'insights'` and `'nutrition'` resolve as `'screenDisabled'`
+ * when their module is in `disabledModules`.
+ */
 export type RollaScreen =
   | 'activityHistory'
   | 'goals'
   | 'home'
   | 'insights'
+  | 'nutrition'
   | 'resume';
 
 export type RollaOpenScreenStatus =
@@ -404,6 +495,36 @@ export type RollaNotificationTarget =
   | { kind: 'appSettings' }
   | { kind: 'screen'; screen: RollaScreen };
 
+// Access
+
+/** Where a user stands against the partner's access gate. */
+export type RollaAccessState =
+  | 'inactive'
+  | 'active'
+  | 'expired'
+  | 'revoked'
+  | 'unknown';
+
+/**
+ * The signed-in user's access status, as the backend last reported it to the
+ * SDK. With the partner's gate off (`gateEnabled` `false`) `state` is absent
+ * and nothing is locked.
+ */
+export interface RollaAccessStatus {
+  /** Whether the partner requires active access to use the app. */
+  gateEnabled: boolean;
+  /** The partner's "How do I get a code?" page, for a host's own lock screen. */
+  helpUrl?: string;
+  /** Absent exactly when the gate is off. */
+  state?: RollaAccessState;
+  /** When time-limited access ends (or ended), as an ISO-8601 string. */
+  accessEndsAt?: string;
+  /** Whether the access never ends. */
+  unlimited: boolean;
+  /** Whether the user is locked out. Decided by the SDK, so it holds for an `'unknown'` state too. */
+  isLocked: boolean;
+}
+
 // Events
 
 export interface RollaEventMap {
@@ -425,6 +546,8 @@ export interface RollaEventMap {
   onPrimarySourceChanged: RollaPrimarySourceChanged;
   onGoalsChanged: RollaGoalsChanged;
   onProfileUpdated: RollaProfileUpdated;
+  /** The user's access status, when the SDK first loads it and on every change after. */
+  onAccessChanged: RollaAccessStatus;
   /** The user tapped one of the SDK's notifications while the app was running. */
   onNotificationTap: RollaNotificationTarget;
 }

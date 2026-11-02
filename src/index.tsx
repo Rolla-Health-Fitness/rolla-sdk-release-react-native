@@ -38,10 +38,11 @@ const SUPPORTED_EVENTS: readonly RollaEventName[] = [
   'onPrimarySourceChanged',
   'onGoalsChanged',
   'onProfileUpdated',
+  'onAccessChanged',
   'onNotificationTap',
 ] as const;
 
-// A host that mirrors the native demos wires every event (17) plus its own;
+// A host that mirrors the native demos wires every event (18) plus its own;
 // warn only on counts that point at leaked effect subscriptions.
 const LISTENER_WARN_THRESHOLD = 40;
 
@@ -79,9 +80,10 @@ function toNotificationTarget(native: Object): RollaNotificationTarget | null {
  *
  * Two-track API by design:
  *  - `show()` resolves on close, so `await` is ergonomic.
- *  - Events also fire — required for token-refresh signals while the SDK UI is
- *    open, and for the observational SDK events, which keep flowing for the
- *    engine's lifetime after the SDK UI closes.
+ *  - Events also fire — required for the token signals, which arrive during
+ *    headless calls as well as while the SDK UI is open, and for the
+ *    observational SDK events, which flow for the engine's lifetime whether
+ *    or not the SDK UI is open.
  *
  * Every entry point takes the configuration it runs under, exactly as a native
  * host builds a `Rolla(configuration)` per call; the SDK engine itself is
@@ -169,6 +171,11 @@ export class Rolla {
     return result;
   }
 
+  /**
+   * Closes the SDK UI if it is presented, whichever call presented it;
+   * `onClose` follows with reason `'programmatic'`. A no-op when nothing is
+   * presented.
+   */
   static dismiss(): Promise<void> {
     return NativeRollaWrapper.dismiss();
   }
@@ -241,11 +248,13 @@ export class Rolla {
 
   /**
    * Runs a full headless sync of the user's primary data source. Resolves with
-   * the terminal `RollaSyncResult` — including `outcome: 'skipped'` with a
-   * `skipReason` when the sync could not run (the host owns permissions and the
-   * SDK cannot prompt headlessly) and `outcome: 'failure'` with `error`. Rejects
-   * only on a transport failure such as the engine not starting. The same
-   * result is also delivered to `onSyncHealthDataCompleted` listeners.
+   * the terminal `RollaSyncResult` — `outcome: 'partial'` when a stream failed
+   * but new data still landed, `outcome: 'skipped'` with a `skipReason` when the
+   * sync could not run (the host owns permissions and the SDK cannot prompt
+   * headlessly) and `outcome: 'failure'` with `error`; `streamResults` reports
+   * each stream the sync attempted. Rejects only on a transport failure such as
+   * the engine not starting. The same result is also delivered to
+   * `onSyncHealthDataCompleted` listeners.
    */
   static syncHealthData(
     config: RollaConfiguration,

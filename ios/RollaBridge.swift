@@ -423,6 +423,10 @@ extension RollaBridge: RollaDelegate {
   public func rollaDidUpdateProfile(_ rolla: Rolla, update: RollaProfileUpdated) {
     emit("onProfileUpdated", RollaPayloadEncoder.encode(update))
   }
+
+  public func rollaDidChangeAccess(_ rolla: Rolla, status: RollaAccessStatus) {
+    emit("onAccessChanged", RollaPayloadEncoder.encode(status))
+  }
 }
 
 /// `RollaDelegate` ships a no-op default for every requirement, so if the SDK
@@ -446,6 +450,7 @@ private let rollaDelegateRequirementsCheck: (RollaDelegate) -> Void = { delegate
   _ = delegate.rollaDidChangePrimarySource(_:change:)
   _ = delegate.rollaDidChangeGoals(_:change:)
   _ = delegate.rollaDidUpdateProfile(_:update:)
+  _ = delegate.rollaDidChangeAccess(_:status:)
 }
 
 // MARK: - Notification taps
@@ -548,6 +553,16 @@ private enum RollaPayloadEncoder {
     put(&dict, "skipReason", result.skipReason?.rawValue)
     put(&dict, "error", result.error)
     put(&dict, "syncedData", result.syncedData.map(encode))
+    dict["streamResults"] = result.streamResults.map(encode)
+    return dict
+  }
+
+  static func encode(_ entry: RollaSyncStreamResult) -> [String: Any] {
+    var dict: [String: Any] = [
+      "stream": entry.stream.rawValue,
+      "status": entry.status.rawValue,
+    ]
+    put(&dict, "error", entry.error)
     return dict
   }
 
@@ -669,6 +684,18 @@ private enum RollaPayloadEncoder {
     ["id": goal.id, "name": goal.name, "enabled": goal.enabled]
   }
 
+  static func encode(_ status: RollaAccessStatus) -> [String: Any] {
+    var dict: [String: Any] = [
+      "gateEnabled": status.gateEnabled,
+      "unlimited": status.unlimited,
+      "isLocked": status.isLocked,
+    ]
+    put(&dict, "helpUrl", status.helpUrl)
+    put(&dict, "state", status.state?.rawValue)
+    put(&dict, "accessEndsAt", iso(status.accessEndsAt))
+    return dict
+  }
+
   static func encode(_ update: RollaProfileUpdated) -> [String: Any] {
     // The SDK hands over Flutter-codec values (numbers, strings, arrays,
     // dictionaries, NSNull), which React Native serializes as they are.
@@ -715,7 +742,8 @@ private enum RollaConfigurationParser {
       // Defaults mirror RollaConfiguration's own so an unset key behaves
       // exactly like a native host that omitted the argument.
       showOptionsButton: dict["showOptionsButton"] as? Bool ?? true,
-      showGoalsSection: dict["showGoalsSection"] as? Bool ?? false
+      showGoalsSection: dict["showGoalsSection"] as? Bool ?? false,
+      oauthCallbackScheme: dict["oauthCallbackScheme"] as? String
     )
   }
 

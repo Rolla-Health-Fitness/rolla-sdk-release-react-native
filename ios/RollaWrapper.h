@@ -8,8 +8,8 @@
 
 // `RollaWrapper` is the registered TurboModule. It conforms to the codegen
 // protocol `<NativeRollaWrapperSpec>`, owns an instance of the Swift
-// `RollaBridge` (which holds the RollaSDK API), and emits the four lifecycle
-// events through `RCTEventEmitter`.
+// `RollaBridge` (which holds the RollaSDK API), and emits the SDK's events
+// (`supportedEvents`) through `RCTEventEmitter`.
 //
 // Why pure ObjC++ + Swift bridge instead of "Swift TurboModule": Swift cannot
 // `import` the codegen `<RollaWrapperSpec/RollaWrapperSpec.h>` (it requires

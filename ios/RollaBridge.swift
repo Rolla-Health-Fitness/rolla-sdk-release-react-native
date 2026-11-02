@@ -67,24 +67,35 @@ struct RollaBridgeError: CustomNSError, LocalizedError {
 ///
 /// Every entry point builds a `Rolla` instance from the configuration it is
 /// given — the way a native host calls the SDK — and wires this bridge as its
-/// delegate. The SDK delivers events for the engine's lifetime to the last
-/// delegate wired, so events keep flowing after the SDK UI closes.
+/// delegate. The SDK delivers events for the engine's lifetime, to the
+/// presenting instance while the SDK UI is shown and to the most recent caller
+/// otherwise; every instance has this bridge as its delegate, so events reach
+/// JS either way and keep flowing after the SDK UI closes.
 @objc(RollaBridge)
 public class RollaBridge: NSObject {
 
   @objc public weak var listener: RollaBridgeListener?
 
-  /// The most recently created instance — the target of `dismiss`,
-  /// `updateToken` and `clearSession`, exactly like a native host that keeps
-  /// its latest `Rolla`. It outlives the SDK UI: the engine keeps running after
-  /// a close, so token pushes and session clears must keep working until
-  /// `destroyEngine()` tears the engine down (which is when this becomes nil).
+  /// The most recently created instance — the target of `updateToken` and
+  /// `clearSession`, exactly like a native host that keeps its latest `Rolla`.
+  /// It outlives the SDK UI: the engine keeps running after a close, so token
+  /// pushes and session clears must keep working until `destroyEngine()` tears
+  /// the engine down (which is when this becomes nil).
   private var rolla: Rolla?
+
+  /// The instances that asked to present the SDK UI — `show()`, and an
+  /// `openScreen()` made while nothing was presented — until that presentation
+  /// ends. The SDK's `dismiss()` acts only on the instance that presented, and
+  /// every later call replaces `rolla`, so `dismiss()` goes to these instead.
+  /// Two calls racing for the presentation slot leave both here; `dismiss()`
+  /// on the one that lost is a no-op.
+  private var presentingInstances: [Rolla] = []
 
   // MARK: - Presentation
 
+  /// Engine-wide in the SDK, so whichever instance is asked answers the same.
   @objc public var isPresenting: Bool {
-    rolla?.isPresenting ?? false
+    (presentingInstances.last ?? rolla)?.isPresenting ?? false
   }
 
   /// Presents the SDK UI. Throws a `RollaBridgeError` when the configuration is
@@ -96,7 +107,7 @@ public class RollaBridge: NSObject {
     transition transitionName: String,
     presenter: UIViewController
   ) throws {
-    if let existing = rolla, existing.isPresenting {
+    if isPresenting {
       throw RollaBridgeError(
         code: "ALREADY_PRESENTING",
         message: "Rolla is already presenting. Dismiss it before calling show() again."
@@ -105,11 +116,12 @@ public class RollaBridge: NSObject {
 
     let transition = try RollaConfigurationParser.transition(named: transitionName)
     let instance = try makeInstance(config: config)
+    presentingInstances.append(instance)
     instance.show(from: presenter, transition: transition)
   }
 
   @objc public func dismiss() {
-    rolla?.dismiss()
+    presentingInstances.forEach { $0.dismiss() }
   }
 
   /// Pushes fresh credentials to the running engine. Like the native SDK, this
@@ -185,11 +197,13 @@ public class RollaBridge: NSObject {
   @objc public func destroyEngine() {
     Rolla.destroyEngine()
     rolla = nil
+    presentingInstances.removeAll()
   }
 
   @objc public func invalidate() {
-    rolla?.dismiss()
+    dismiss()
     rolla = nil
+    presentingInstances.removeAll()
   }
 
   // MARK: - Headless
@@ -298,7 +312,17 @@ public class RollaBridge: NSObject {
       completion(nil, error as NSError)
       return
     }
-    instance.openScreen(screen, from: presenter, transition: transition) { status in
+    // An open while the SDK UI is shown navigates in place and leaves the
+    // presentation with the instance that made it; otherwise this instance
+    // presents, unless the open resolves without showing anything.
+    let presents = !isPresenting
+    if presents {
+      presentingInstances.append(instance)
+    }
+    instance.openScreen(screen, from: presenter, transition: transition) { [weak self] status in
+      if presents, !instance.isPresenting {
+        self?.forgetPresentation(of: instance)
+      }
       completion(status.rawValue, nil)
     }
   }
@@ -315,6 +339,10 @@ public class RollaBridge: NSObject {
     return instance
   }
 
+  private func forgetPresentation(of instance: Rolla) {
+    presentingInstances.removeAll { $0 === instance }
+  }
+
   private func emit(_ name: String, _ payload: [String: Any]) {
     listener?.rollaBridgeDidReceiveEvent(name: name, payload: payload)
   }
@@ -325,8 +353,10 @@ public class RollaBridge: NSObject {
 extension RollaBridge: RollaDelegate {
 
   public func rollaDidClose(_ rolla: Rolla, reason: RollaCloseReason) {
-    // The instance is kept: the engine survives the close, and token pushes,
-    // session clears and the observational events all continue against it.
+    // The current instance is kept: the engine survives the close, and token
+    // pushes, session clears and the observational events all continue
+    // against it. The presentation is over, and only one exists at a time.
+    presentingInstances.removeAll()
     let key: String
     var detail: String?
     switch reason {
@@ -354,6 +384,9 @@ extension RollaBridge: RollaDelegate {
     var presentationFailed = !rolla.isPresenting
     if case .alreadyPresenting = error {
       presentationFailed = true
+    }
+    if presentationFailed {
+      forgetPresentation(of: rolla)
     }
     listener?.rollaBridgeDidFail(
       code: error.code,

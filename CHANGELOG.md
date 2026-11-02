@@ -127,7 +127,7 @@ This file is the synced copy of the Rolla SDK changelog (`rolla-sdk/CHANGELOG.md
 
 - **[feature] `@rolla-health/react-native-sdk` 0.2.0 ships in lockstep with the native SDK and exposes the full 0.2.0 API.** `RollaSyncResult.streamResults` with the `partial` outcome, `RollaScreen` `nutrition`, `RollaDisabledModule` `nutrition` and `groupActivities`, `oauthCallbackScheme`, the `accessRequired` skip reason, and the token callbacks delivered during headless calls. The npm version equals the native SDK version it pins; the React Native-only 0.1.16 (native 0.1.15) was the one exception.
 
-- **[improvement] The ZIPFoundation `pre_install` / `post_install` Podfile workarounds are no longer needed.** NordicDFU and ZIPFoundation now install from source and compile at your project's deployment target, so the hooks that forced ZIPFoundation into a dynamic framework pinned to iOS 14.0 (which Xcode 27 refuses) can be removed from the Podfile; React Native's own `post_install` already raises every pod to its 15.1 floor.
+- **[improvement] The ZIPFoundation `pre_install` / `post_install` Podfile workarounds are no longer needed.** NordicDFU and ZIPFoundation now install from source and compile at your project's deployment target, so the hooks that forced ZIPFoundation into a dynamic framework pinned to iOS 14.0 (which Xcode 27 refuses) can be removed from the Podfile. On Xcode 27 keep a `post_install` loop that raises every target below 15.1 to 15.1: React Native's own post-install raises the pods but not their resource bundles, and the privacy bundles of ZIPFoundation and NordicDFU declare iOS 12.0, which Xcode 27 refuses to build.
 
 ---
 

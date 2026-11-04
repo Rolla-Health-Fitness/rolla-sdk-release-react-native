@@ -8,7 +8,7 @@ normal source repo, not a bot-owned artifact repo. `README.md` is the partner-fa
 ## Versioning contract
 
 - Lockstep: npm `X.Y.Z` links native SDK `X.Y.Z`. The one exception is `0.1.16`, a React Native-only release that
-  links native `0.1.15`; native 0.1.16 never exists and lockstep resumes at 0.2.0. Never publish a `-test.` pin.
+  links native `0.1.15`; native 0.1.16 never exists and lockstep resumed at 0.2.0. Never publish a `-test.` pin.
 - Single pin source: `package.json` → `nativeSdkVersion`. `RollaWrapper.podspec` and `android/build.gradle` read it;
   `getNativeSdkVersion()` reports it. `version` is the npm version.
 - The README's partner-docs links point at `rolla-sdk-documentation` branch `release/<nativeSdkVersion>`.
@@ -30,7 +30,8 @@ normal source repo, not a bot-owned artifact repo. `README.md` is the partner-fa
 - CI (`ci.yml`): lint, build-library, build-android, build-ios on every PR to `dev`. Local `yarn lint` also picks up
   `example/ios/build`, `example/ios/Pods` and `example/android/app/build` when they exist — ignore those hits.
 - `example/` is a maintainer smoke harness, not a partner sample; keep partner-facing samples in the demo repo.
-- Native error codes reach JS verbatim (`RollaError.code`); wrapper-owned codes are `INVALID_CONFIG`,
+- iOS passes native error codes to JS verbatim (`RollaError.code`); Android's `updateToken` / `clearSession` reject with
+  `UPDATE_TOKEN_FAILED` / `CLEAR_SESSION_FAILED` (a documented divergence). Wrapper-owned codes are `INVALID_CONFIG`,
   `ALREADY_PRESENTING`, `NO_ACTIVE_SESSION`, `NO_PRESENTER` (iOS), `NO_ACTIVITY` (Android).
 - Git: branch `PE-<n>-<slug>` off `dev`, never track `origin/dev`, push with
   `git push -u origin HEAD:$(git branch --show-current)`, squash-merge with a `PE-<n>: Imperative summary` title. No

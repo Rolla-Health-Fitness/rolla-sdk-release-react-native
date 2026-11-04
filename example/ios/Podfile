@@ -29,17 +29,6 @@ ENV['NO_FLIPPER'] = '1'
 target 'RollaWrapperScaffoldExample' do
   config = use_native_modules!
 
-  # ZIPFoundation must be dynamic — NordicDFU expects it that way.
-  pre_install do |installer|
-    installer.pod_targets.each do |pod|
-      if pod.name == 'ZIPFoundation'
-        def pod.build_type
-          Pod::BuildType.dynamic_framework
-        end
-      end
-    end
-  end
-
   use_react_native!(
     :path => config[:reactNativePath],
     # An absolute path to your application root.
@@ -56,8 +45,17 @@ target 'RollaWrapperScaffoldExample' do
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
-        if target.name == 'ZIPFoundation'
-          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+        # Xcode 27's clang rejects fmt 11.0.2 (React Native 0.80.3) under C++20:
+        # 'call to consteval function ... is not a constant expression'.
+        # Unrelated to Rolla; goes away with a React Native upgrade.
+        if target.name == 'fmt'
+          config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+        end
+        # Xcode 27 builds nothing below iOS 15.0. react_native_post_install
+        # raises the pods but not their resource bundles, and the privacy
+        # bundles of ZIPFoundation and NordicDFU declare iOS 12.0.
+        if config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < 15.1
+          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
         end
       end
     end

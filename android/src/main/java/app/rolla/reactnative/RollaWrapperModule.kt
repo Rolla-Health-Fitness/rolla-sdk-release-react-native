@@ -22,6 +22,7 @@ import com.rolla.sdk.wrapper.config.RollaDisabledModule
 import com.rolla.sdk.wrapper.config.RollaLanguage
 import com.rolla.sdk.wrapper.config.RollaThemeMode
 import com.rolla.sdk.wrapper.config.RollaTransition
+import com.rolla.sdk.wrapper.features.access.RollaAccessStatus
 import com.rolla.sdk.wrapper.features.activity.RollaCompletedActivity
 import com.rolla.sdk.wrapper.features.activity.RollaRemovedActivity
 import com.rolla.sdk.wrapper.features.activity.RollaStartedActivity
@@ -37,6 +38,7 @@ import com.rolla.sdk.wrapper.features.session.RollaCloseReason
 import com.rolla.sdk.wrapper.features.session.RollaError
 import com.rolla.sdk.wrapper.features.sync.RollaPrimarySourceChanged
 import com.rolla.sdk.wrapper.features.sync.RollaSyncResult
+import com.rolla.sdk.wrapper.features.sync.RollaSyncStreamResult
 import com.rolla.sdk.wrapper.features.sync.RollaSyncedHealthData
 import com.rolla.sdk.wrapper.features.sync.RollaSyncedSamples
 import com.rolla.sdk.wrapper.features.sync.RollaSyncedStreamSummary
@@ -48,8 +50,10 @@ import java.util.Date
  *
  * Every entry point builds a `Rolla` instance from the configuration it is
  * given — the way a native host calls the SDK — and wires this module as its
- * listener. The SDK delivers events for the engine's lifetime to the last
- * listener wired, so events keep flowing after the SDK UI closes.
+ * listener. The SDK delivers events for the engine's lifetime, to the
+ * presenting instance while the SDK UI is shown and to the most recent caller
+ * otherwise; every instance has this module's adapter as its listener, so
+ * events reach JS either way and keep flowing after the SDK UI closes.
  */
 class RollaWrapperModule(reactContext: ReactApplicationContext) :
     NativeRollaWrapperSpec(reactContext), LifecycleEventListener, ActivityEventListener {
@@ -453,6 +457,10 @@ class RollaWrapperModule(reactContext: ReactApplicationContext) :
         override fun onProfileUpdated(rolla: Rolla, update: RollaProfileUpdated) {
             emit("onProfileUpdated", RollaPayloadEncoder.encode(update))
         }
+
+        override fun onAccessChanged(rolla: Rolla, status: RollaAccessStatus) {
+            emit("onAccessChanged", RollaPayloadEncoder.encode(status))
+        }
     }
 
     private fun encodeReason(reason: RollaCloseReason): WritableMap {
@@ -496,6 +504,13 @@ private object RollaPayloadEncoder {
         result.skipReason?.let { putString("skipReason", it.rawValue) }
         result.error?.let { putString("error", it) }
         result.syncedData?.let { putMap("syncedData", encode(it)) }
+        putArray("streamResults", result.streamResults.toArray { encodeStreamResult(it) })
+    }
+
+    private fun WritableMap.encodeStreamResult(entry: RollaSyncStreamResult) {
+        putString("stream", entry.stream.rawValue)
+        putString("status", entry.status.rawValue)
+        entry.error?.let { putString("error", it) }
     }
 
     fun encode(data: RollaSyncedHealthData): WritableMap = Arguments.createMap().apply {
@@ -612,6 +627,15 @@ private object RollaPayloadEncoder {
         putBoolean("enabled", goal.enabled)
     }
 
+    fun encode(status: RollaAccessStatus): WritableMap = Arguments.createMap().apply {
+        putBoolean("gateEnabled", status.gateEnabled)
+        status.helpUrl?.let { putString("helpUrl", it) }
+        status.state?.let { putString("state", it.rawValue) }
+        status.accessEndsAt?.let { putString("accessEndsAt", iso(it)) }
+        putBoolean("unlimited", status.unlimited)
+        putBoolean("isLocked", status.isLocked)
+    }
+
     fun encode(update: RollaProfileUpdated): WritableMap = Arguments.createMap().apply {
         // The SDK hands over Flutter-codec values (numbers, strings, lists,
         // maps, null); anything else is passed on as its string form.
@@ -704,6 +728,7 @@ private object RollaConfigurationParser {
             // exactly like a native host that omitted the argument.
             showOptionsButton = map.getBooleanOrNull("showOptionsButton") ?: true,
             showGoalsSection = map.getBooleanOrNull("showGoalsSection") ?: false,
+            oauthCallbackScheme = map.getStringOrNull("oauthCallbackScheme"),
         )
     }
 

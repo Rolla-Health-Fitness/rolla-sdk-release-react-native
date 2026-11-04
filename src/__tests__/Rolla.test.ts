@@ -1,7 +1,12 @@
 /// <reference types="jest" />
 // TypeScript 6 no longer auto-includes @types/*; reference jest's globals here
 // so they stay out of the library's own type build.
-import type { RollaCloseEvent, RollaConfiguration } from '../types';
+import type {
+  RollaAccessStatus,
+  RollaCloseEvent,
+  RollaConfiguration,
+  RollaSyncResult,
+} from '../types';
 
 // Self-contained mock of the two react-native pieces the wrapper touches: the
 // TurboModule registry (returns a recording native module) and the event
@@ -272,6 +277,40 @@ describe('headless and navigation entry points', () => {
     expect(rn.__native.syncHealthData).toHaveBeenLastCalledWith(CONFIG, true);
   });
 
+  it('resolves a partial sync with its per-stream results as native encoded them', async () => {
+    const partial: RollaSyncResult = {
+      outcome: 'partial',
+      hasNewData: true,
+      source: 'appleHealth',
+      error: 'workouts: upload failed',
+      streamResults: [
+        { stream: 'heartRate', status: 'uploaded' },
+        { stream: 'workouts', status: 'failed', error: 'upload failed' },
+        {
+          stream: 'weight',
+          status: 'permissionRequired',
+          error: 'HKQuantityTypeIdentifierBodyMass',
+        },
+      ],
+    };
+    rn.__native.syncHealthData.mockResolvedValueOnce(partial);
+    await expect(Rolla.syncHealthData(CONFIG)).resolves.toEqual(partial);
+  });
+
+  it('passes the 0.2.0 configuration fields and the nutrition screen to native', async () => {
+    const config: RollaConfiguration = {
+      ...CONFIG,
+      disabledModules: ['groupActivities', 'nutrition'],
+      oauthCallbackScheme: 'acme-health',
+    };
+    await Rolla.openScreen(config, 'nutrition');
+    expect(rn.__native.openScreen).toHaveBeenLastCalledWith(
+      config,
+      'nutrition',
+      'default'
+    );
+  });
+
   it('opens a screen with the default transition unless one is given', async () => {
     await expect(Rolla.openScreen(CONFIG, 'goals')).resolves.toBe('opened');
     expect(rn.__native.openScreen).toHaveBeenLastCalledWith(
@@ -324,6 +363,23 @@ describe('Rolla.addListener()', () => {
     sub.remove();
     expect(rn.__native.removeListeners).toHaveBeenCalledWith(1);
     expect(rn.__listenerCount('onNotificationTap')).toBe(0);
+  });
+
+  it('delivers the access status to onAccessChanged listeners', () => {
+    const received: RollaAccessStatus[] = [];
+    const sub = Rolla.addListener('onAccessChanged', (status) => {
+      received.push(status);
+    });
+    const status: RollaAccessStatus = {
+      gateEnabled: true,
+      state: 'expired',
+      accessEndsAt: '2026-10-31T23:59:59.000Z',
+      unlimited: false,
+      isLocked: true,
+    };
+    rn.__emit('onAccessChanged', status);
+    expect(received).toEqual([status]);
+    sub.remove();
   });
 
   it('rejects event names the wrapper does not emit', () => {

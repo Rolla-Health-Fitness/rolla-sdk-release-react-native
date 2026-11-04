@@ -35,6 +35,8 @@
 	<string>Bluetooth access allows the app to connect to your fitness band and keep syncing health data and activity metrics reliably, even when the app isn't open.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>The app uses Bluetooth to connect to your fitness band and sync health data and activity metrics.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>The app uses the camera to photograph a meal and estimate its nutrition. Photos are only sent when you choose to scan one, and nothing is logged until you confirm the estimate.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>The app reads your health and fitness data to track your workouts, monitor your activity levels, and provide insights into your fitness progress.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

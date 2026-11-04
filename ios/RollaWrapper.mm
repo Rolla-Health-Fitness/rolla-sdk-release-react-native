@@ -33,6 +33,7 @@ static NSArray<NSString *> *RollaObservationalEvents(void) {
     @"onPrimarySourceChanged",
     @"onGoalsChanged",
     @"onProfileUpdated",
+    @"onAccessChanged",
   ];
 }
 
